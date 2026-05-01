@@ -1,0 +1,34 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Local Vercel link (re-created per developer)
+.vercel/
+
+# Future Next.js scaffold (v0.2)
+node_modules/
+.next/
+out/
+.env
+.env.local
+.env*.local
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build artefacts
+dist/
+build/
+.claude/

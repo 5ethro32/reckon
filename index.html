@@ -1,0 +1,2721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Reckon — Invoice & Statement Reconciliation for Pharmacy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root {
+    /* Chrome — calm dark surface */
+    --background: #0a0f1a;
+    --surface: #10172a;
+    --surface-raised: #172241;
+    --surface-hover: #1c2b4f;
+    --border: #1e2b4d;
+    --border-subtle: #16203a;
+
+    --foreground: #f2f5fa;
+    --muted: #8a99b8;
+    --muted-light: #5f6f90;
+
+    /* Brand palette — single accent + supporting tones */
+    --brand-navy: #1f3a5f;
+    --brand-navy-bright: #2d5282;
+    --brand-green: #7cb342;
+    --brand-teal: #3dafac;
+    --brand-green-soft: rgba(124, 179, 66, 0.12);
+    --brand-teal-soft: rgba(61, 175, 172, 0.12);
+    --brand-navy-soft: rgba(45, 82, 130, 0.18);
+
+    /* Semantic — status */
+    --status-ok-bg: rgba(124, 179, 66, 0.14);
+    --status-ok-text: #a8d472;
+    --status-warn-bg: rgba(245, 158, 11, 0.14);
+    --status-warn-text: #fbbf24;
+    --status-alert-bg: rgba(239, 68, 68, 0.14);
+    --status-alert-text: #fb7185;
+    --status-info-bg: rgba(61, 175, 172, 0.14);
+    --status-info-text: #5cc9c6;
+
+    --accent: var(--brand-teal);
+    --accent-hover: #4fc4c1;
+
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.25);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { background: var(--background); color: var(--foreground); font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; font-feature-settings: "rlig" 1, "calt" 1; }
+  body { margin: 0; min-height: 100vh; }
+
+  /* Numbers in data cells — always tabular */
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  /* Card — single surface, soft shadow */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow-sm);
+  }
+  .card-raised { background: var(--surface-raised); }
+
+  /* Stat card — no coloured stripe (quiet chrome, hierarchy from typography) */
+  .stat-accent { position: relative; }
+  .stat-accent-green, .stat-accent-teal, .stat-accent-navy,
+  .stat-accent-amber, .stat-accent-red { /* intentionally no-op — kept for class compatibility */ }
+
+  /* Pills / badges — text-hugging */
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; font-weight: 500;
+    padding: 3px 8px; border-radius: 5px;
+    white-space: nowrap; line-height: 1.4;
+  }
+  .pill-ok    { background: var(--status-ok-bg); color: var(--status-ok-text); }
+  .pill-warn  { background: var(--status-warn-bg); color: var(--status-warn-text); }
+  .pill-alert { background: var(--status-alert-bg); color: var(--status-alert-text); }
+  .pill-info  { background: var(--status-info-bg); color: var(--status-info-text); }
+  .pill-neutral { background: var(--surface-raised); color: var(--muted); border: 1px solid var(--border); }
+  .pill-navy  { background: var(--brand-navy-soft); color: #a2c3ed; }
+  .pill-teal  { background: var(--brand-teal-soft); color: #7fd4d1; }
+  .pill-green { background: var(--brand-green-soft); color: #a8d472; }
+
+  /* Section label */
+  .section-label {
+    font-size: 11px; font-weight: 600;
+    color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* Table */
+  table.data { width: 100%; border-collapse: collapse; }
+  table.data th {
+    text-align: left; font-size: 11px; font-weight: 600;
+    color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 10px 12px; border-bottom: 1px solid var(--border);
+    background: transparent;
+  }
+  table.data td {
+    padding: 12px; font-size: 13px; border-bottom: 1px solid var(--border-subtle);
+  }
+  table.data tr:last-child td { border-bottom: none; }
+  table.data tbody tr { transition: background 150ms ease; }
+  table.data tbody tr:hover { background: var(--surface-raised); }
+  table.data th:first-child, table.data td:first-child { padding-left: 16px; }
+  table.data th:last-child,  table.data td:last-child  { padding-right: 16px; }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 13px; font-weight: 500;
+    padding: 8px 14px; border-radius: 8px;
+    transition: all 150ms ease; cursor: pointer; border: none;
+  }
+  .btn-primary { background: var(--brand-teal); color: white; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-secondary {
+    background: var(--surface-raised); color: var(--foreground);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { background: var(--surface-hover); }
+  .btn-ghost { background: transparent; color: var(--muted); }
+  .btn-ghost:hover { color: var(--foreground); background: var(--surface-raised); }
+  .btn-outline {
+    background: transparent;
+    color: var(--brand-teal);
+    border: 1px solid var(--brand-teal);
+  }
+  .btn-outline:hover { background: var(--brand-teal-soft); }
+  .btn-green { background: var(--brand-green); color: #0a1a0a; font-weight: 600; }
+  .btn-green:hover { background: #8cc34f; }
+
+  /* Inputs */
+  .input {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 12px;
+    font-size: 13px; color: var(--foreground); outline: none;
+    transition: border-color 150ms ease;
+  }
+  .input:focus { border-color: var(--brand-teal); box-shadow: 0 0 0 3px var(--brand-teal-soft); }
+
+  /* Hide native number-input spinners (ugly on every OS) */
+  input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  /* Sidebar nav */
+  .nav-item {
+    display: flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; border-radius: 10px;
+    color: var(--muted); transition: all 150ms ease; cursor: pointer;
+    position: relative;
+  }
+  .nav-item:hover { color: var(--foreground); background: var(--surface-raised); }
+  .nav-item.active { color: var(--brand-teal); background: var(--brand-teal-soft); }
+  .nav-item.active::before {
+    content: ""; position: absolute; left: -12px; top: 8px; bottom: 8px; width: 2px;
+    background: var(--brand-teal); border-radius: 2px;
+  }
+
+  /* Tooltip — needs to escape the sticky sidebar's stacking context */
+  .tooltip { position: relative; }
+  .tooltip::after {
+    content: attr(data-tip);
+    position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);
+    background: var(--surface-raised); color: var(--foreground);
+    font-size: 12px; padding: 6px 10px; border-radius: 6px;
+    white-space: nowrap; opacity: 0; pointer-events: none;
+    transition: opacity 150ms ease;
+    border: 1px solid var(--border);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+    z-index: 9999;
+  }
+  .tooltip:hover { z-index: 9999; }
+  .tooltip:hover::after { opacity: 1; }
+
+  /* Sidebar must allow tooltips to escape */
+  aside { overflow: visible !important; }
+
+  /* Brand mark */
+  .brand-mark svg { display: block; }
+
+  /* Page transitions */
+  .page { display: none; }
+  .page.active { display: block; animation: fadeIn 200ms ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  /* Tab row */
+  .tab {
+    padding: 10px 16px; font-size: 13px; font-weight: 500;
+    color: var(--muted); border-bottom: 2px solid transparent;
+    transition: color 150ms ease; cursor: pointer;
+  }
+  .tab:hover { color: var(--foreground); }
+  .tab.active { color: var(--foreground); border-bottom-color: var(--brand-teal); }
+
+  /* Checkbox (tick-off) */
+  .tick {
+    width: 22px; height: 22px; border-radius: 6px;
+    border: 1.5px solid var(--border);
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 150ms ease;
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  .tick:hover { border-color: var(--brand-teal); }
+  .tick.checked { background: var(--brand-green); border-color: var(--brand-green); color: #0a1a0a; }
+  .tick.short   { background: var(--brand-navy-bright); border-color: var(--brand-navy-bright); color: white; }
+  .tick.damage  { background: #ef4444; border-color: #ef4444; color: white; }
+
+  /* Subtle horizontal scrollbar hidden until hover — keeps chrome calm */
+  .scrollbar-calm::-webkit-scrollbar { height: 6px; width: 6px; }
+  .scrollbar-calm::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-calm::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .scrollbar-calm::-webkit-scrollbar-thumb:hover { background: var(--muted-light); }
+
+  /* Progress — match bar */
+  .matchbar {
+    height: 4px; background: var(--border-subtle); border-radius: 999px; overflow: hidden;
+  }
+  .matchbar > span { display: block; height: 100%; border-radius: 999px; }
+
+  /* Divider with label */
+  .divider {
+    display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase;
+  }
+  .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--border-subtle); }
+
+  /* Modal */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(5, 8, 15, 0.68);
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    z-index: 100; display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none; transition: opacity 200ms ease;
+  }
+  .modal-backdrop.open { opacity: 1; pointer-events: auto; }
+  .modal {
+    width: min(780px, calc(100vw - 48px));
+    max-height: calc(100vh - 48px);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.3);
+    overflow: hidden; display: flex; flex-direction: column;
+    transform: translateY(8px) scale(0.98); transition: transform 200ms ease;
+  }
+  .modal-backdrop.open .modal { transform: none; }
+
+  /* Drop zone */
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 36px 24px;
+    text-align: center;
+    transition: all 150ms ease;
+    background: var(--background);
+    cursor: pointer;
+  }
+  .dropzone:hover { border-color: var(--brand-teal); background: var(--surface-raised); }
+  .dropzone.drag { border-color: var(--brand-green); background: var(--brand-green-soft); }
+  .dropzone-icon {
+    width: 48px; height: 48px; border-radius: 12px;
+    background: var(--brand-teal-soft);
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--brand-teal);
+    margin-bottom: 12px;
+  }
+
+  /* File row */
+  .file-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px; border-radius: 8px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border-subtle);
+  }
+  .file-thumb {
+    width: 40px; height: 48px; border-radius: 4px;
+    background: linear-gradient(165deg, #1e2b4d 0%, #273863 100%);
+    display: flex; align-items: flex-start; justify-content: flex-start;
+    padding: 4px; flex-shrink: 0;
+    font-size: 8px; color: #6a85b5; font-weight: 500;
+    position: relative; overflow: hidden;
+  }
+  .file-thumb::after {
+    content: ""; position: absolute; left: 4px; right: 4px; top: 14px;
+    height: 1px; background: rgba(255,255,255,0.08);
+    box-shadow: 0 3px 0 rgba(255,255,255,0.08), 0 6px 0 rgba(255,255,255,0.08), 0 9px 0 rgba(255,255,255,0.08), 0 12px 0 rgba(255,255,255,0.08), 0 15px 0 rgba(255,255,255,0.08), 0 18px 0 rgba(255,255,255,0.08), 0 21px 0 rgba(255,255,255,0.08), 0 24px 0 rgba(255,255,255,0.08), 0 27px 0 rgba(255,255,255,0.08);
+  }
+
+  /* Progress */
+  .progress-ring {
+    --size: 18px; --thick: 2.5px; --pct: 0;
+    width: var(--size); height: var(--size); border-radius: 50%;
+    background:
+      conic-gradient(var(--brand-teal) calc(var(--pct) * 1%), var(--border) 0);
+    mask: radial-gradient(circle, transparent calc(50% - var(--thick)), black calc(50% - var(--thick) + 1px));
+    -webkit-mask: radial-gradient(circle, transparent calc(50% - var(--thick)), black calc(50% - var(--thick) + 1px));
+    flex-shrink: 0;
+  }
+
+  /* Stepper */
+  .stepper { display: flex; align-items: center; gap: 10px; }
+  .step { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .step-dot {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: var(--surface-raised); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 600; color: var(--muted);
+    flex-shrink: 0;
+  }
+  .step.active .step-dot { background: var(--brand-teal); border-color: var(--brand-teal); color: white; }
+  .step.active span { color: var(--foreground); font-weight: 500; }
+  .step.done .step-dot { background: var(--brand-green); border-color: var(--brand-green); color: #0a1a0a; }
+  .step-line { flex: 1; height: 1px; background: var(--border); max-width: 48px; }
+  .step.done + .step-line { background: var(--brand-green); }
+
+  /* OCR line ticker */
+  @keyframes ocr-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: none; }
+  }
+  .ocr-line { animation: ocr-in 200ms ease both; }
+
+  /* Pulse dot (live/scanning) */
+  @keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+  .pulse-dot { animation: pulse 1.2s ease-in-out infinite; }
+
+  /* Tick dropdown menu — rendered into body, positioned via JS */
+  #tick-floater {
+    position: fixed;
+    min-width: 260px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: 0 10px 28px rgba(0,0,0,0.55);
+    padding: 4px;
+    z-index: 10000;
+    display: none;
+  }
+  #tick-floater.open { display: block; animation: fadeIn 120ms ease; }
+  .tick-menu-item {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 9px 10px;
+    border-radius: 6px; border: none; background: transparent;
+    color: var(--foreground); font-size: 13px; text-align: left; cursor: pointer;
+    transition: background 120ms ease;
+  }
+  .tick-menu-item:hover { background: var(--surface-raised); }
+  .tick-menu-item.danger { color: var(--status-alert-text); }
+  .tick-menu-sep { height: 1px; background: var(--border-subtle); margin: 4px 0; }
+  .tick-menu-icon { width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .tick-menu-label { flex: 1; }
+  .tick-menu-sub { font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+  /* Folder row (bulk ingest) */
+  .folder-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 14px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; transition: all 150ms ease; cursor: pointer;
+  }
+  .folder-row:hover { background: var(--surface-raised); border-color: var(--brand-teal); }
+  .folder-icon {
+    width: 36px; height: 36px; border-radius: 8px;
+    background: var(--surface-raised); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted); flex-shrink: 0;
+  }
+</style>
+</head>
+<body>
+
+<!-- SHELL -->
+<div class="flex min-h-screen">
+  <!-- SIDEBAR -->
+  <aside class="w-[64px] border-r border-[var(--border)] bg-[var(--surface)] flex flex-col items-center py-4 gap-1 sticky top-0 h-screen">
+    <!-- logo -->
+    <div class="mb-4 flex flex-col items-center">
+      <div class="brand-mark" title="Reckon">
+        <!-- Reckon mark — open square bracket + tally tick (count + reconcile) -->
+        <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <!-- Bracket (the "ledger") -->
+          <path d="M 11 5 L 5 5 L 5 27 L 11 27" fill="none" stroke="#3DAFAC" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- Tick mark inside (the "reckon") -->
+          <path d="M 12 17 L 17 22 L 27 9" fill="none" stroke="#3DAFAC" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+    </div>
+
+    <button class="nav-item active tooltip" data-tip="Dashboard" data-page="dashboard">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+    </button>
+    <button class="nav-item tooltip" data-tip="Deliveries" data-page="deliveries">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4V7z"/><path d="M3 7l9 4 9-4"/><path d="M12 11v10"/></svg>
+    </button>
+    <button class="nav-item tooltip" data-tip="Credit Notes" data-page="credits">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M4 9h16"/><path d="M9 14h6"/></svg>
+    </button>
+    <button class="nav-item tooltip" data-tip="Statements" data-page="statements">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9l-6-6z"/><path d="M14 3v6h6"/><path d="M8 14h8"/><path d="M8 18h5"/></svg>
+    </button>
+    <button class="nav-item tooltip" data-tip="Products" data-page="products">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a13.5 13.5 0 010 18"/><path d="M12 3a13.5 13.5 0 000 18"/></svg>
+    </button>
+    <button class="nav-item tooltip" data-tip="Suppliers" data-page="suppliers">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01"/></svg>
+    </button>
+
+    <div class="flex-1"></div>
+
+    <button class="nav-item tooltip" data-tip="Settings">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+    </button>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="flex-1 min-w-0">
+    <!-- TOPBAR -->
+    <header class="h-[64px] border-b border-[var(--border)] bg-[var(--background)] sticky top-0 z-20 flex items-center px-6 justify-between">
+      <div class="flex items-center gap-3">
+        <span class="text-[15px] font-semibold tracking-tight">Reckon</span>
+        <span class="text-[var(--muted-light)]">/</span>
+        <span id="page-crumb" class="text-[13px] font-medium text-[var(--muted)]">Dashboard</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <div class="relative">
+          <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          <input class="input pl-9 w-64" placeholder="Search invoices, products, suppliers…" />
+        </div>
+        <button class="btn btn-secondary"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg></button>
+        <div class="w-9 h-9 rounded-full bg-[var(--brand-navy-bright)] flex items-center justify-center text-white text-[12px] font-semibold">JG</div>
+      </div>
+    </header>
+
+    <!-- ============================================================= -->
+    <!-- DASHBOARD -->
+    <!-- ============================================================= -->
+    <section class="page active p-6 space-y-5" data-page="dashboard">
+      <!-- HERO row: today's status -->
+      <div class="flex items-end justify-between">
+        <div>
+          <div class="section-label">Tuesday · 22 April</div>
+          <h1 class="mt-1 text-[26px] font-semibold tracking-tight">Good morning, Jethro.</h1>
+          <p class="text-[13px] text-[var(--muted)] mt-1">6 deliveries landed overnight. 3 have been reconciled. <span class="text-[var(--foreground)] font-medium">14 lines</span> need your eye before month-end.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="btn btn-secondary">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export month-end
+          </button>
+          <button class="btn btn-outline" data-action="scan">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Scan new invoice
+          </button>
+        </div>
+      </div>
+
+      <!-- STAT ROW -->
+      <div class="grid grid-cols-5 gap-3">
+        <div class="card p-4">
+          <span class="section-label">Deliveries today</span>
+          <div class="mt-1.5 flex items-baseline gap-2">
+            <span class="text-[28px] font-semibold tnum">6</span>
+            <span class="text-[12px] text-[var(--muted)]">from 4 suppliers</span>
+          </div>
+        </div>
+        <div class="card p-4">
+          <span class="section-label">Reconciled</span>
+          <div class="mt-1.5 flex items-baseline gap-2">
+            <span class="text-[28px] font-semibold tnum">3</span>
+            <span class="text-[12px] text-[var(--muted)]">of 6 · 50%</span>
+          </div>
+        </div>
+        <div class="card p-4">
+          <span class="section-label">Credit queue</span>
+          <div class="mt-1.5 flex items-baseline gap-2">
+            <span class="text-[28px] font-semibold tnum">14</span>
+            <span class="text-[12px] text-[var(--muted)]">£482.17 drafted</span>
+          </div>
+        </div>
+        <div class="card p-4">
+          <span class="section-label">Credits unchased &gt; 14d</span>
+          <div class="mt-1.5 flex items-baseline gap-2">
+            <span class="text-[28px] font-semibold tnum" style="color: var(--status-alert-text);">9</span>
+            <span class="text-[12px] text-[var(--muted)]">£1,241 · oldest 28 Mar</span>
+          </div>
+        </div>
+        <div class="card p-4">
+          <span class="section-label">Mapping queue</span>
+          <div class="mt-1.5 flex items-baseline gap-2">
+            <span class="text-[28px] font-semibold tnum">23</span>
+            <span class="text-[12px] text-[var(--muted)]">new SKUs</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- TWO-COLUMN: today's deliveries + month progress -->
+      <div class="grid grid-cols-3 gap-3">
+        <!-- Deliveries today -->
+        <div class="card col-span-2">
+          <div class="flex items-center justify-between p-5 pb-3">
+            <div>
+              <h2 class="text-[15px] font-semibold">Today's deliveries</h2>
+              <p class="text-[12px] text-[var(--muted)] mt-0.5">Tap a row to start reconciling.</p>
+            </div>
+            <div class="flex gap-2">
+              <span class="pill pill-neutral">All suppliers</span>
+              <button class="btn btn-ghost !py-1 !px-2 text-[12px]">View all →</button>
+            </div>
+          </div>
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Supplier</th>
+                <th>Invoice</th>
+                <th>Lines</th>
+                <th>Value</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="cursor-pointer">
+                <td>
+                  <div class="flex items-center gap-2.5">
+                    <div class="w-7 h-7 rounded-md bg-[var(--surface-raised)] border border-[var(--border)] flex items-center justify-center text-[10px] font-medium text-[var(--muted)]">AAH</div>
+                    <div>
+                      <div class="font-medium">AAH Pharmaceuticals</div>
+                      <div class="text-[11px] text-[var(--muted)]">Box 1 of 3</div>
+                    </div>
+                  </div>
+                </td>
+                <td class="tnum text-[var(--muted)]">INV‑44821A</td>
+                <td class="tnum">47</td>
+                <td class="tnum">£2,184.12</td>
+                <td><span class="pill pill-warn">Needs check</span></td>
+                <td class="text-right"><button class="btn btn-secondary !py-1.5 !px-3 text-[12px]">Tick off</button></td>
+              </tr>
+              <tr class="cursor-pointer">
+                <td>
+                  <div class="flex items-center gap-2.5">
+                    <div class="w-7 h-7 rounded-md bg-[var(--surface-raised)] border border-[var(--border)] flex items-center justify-center text-[10px] font-medium text-[var(--muted)]">AAH</div>
+                    <div>
+                      <div class="font-medium">AAH Pharmaceuticals</div>
+                      <div class="text-[11px] text-[var(--muted)]">Box 2 of 3</div>
+                    </div>
+                  </div>
+                </td>
+                <td class="tnum text-[var(--muted)]">INV‑44821B</td>
+                <td class="tnum">22</td>
+                <td class="tnum">£874.50</td>
+                <td><span class="pill pill-warn">Needs check</span></td>
+                <td class="text-right"><button class="btn btn-secondary !py-1.5 !px-3 text-[12px]">Tick off</button></td>
+              </tr>
+              <tr class="cursor-pointer">
+                <td>
+                  <div class="flex items-center gap-2.5">
+                    <div class="w-7 h-7 rounded-md bg-[var(--surface-raised)] border border-[var(--border)] flex items-center justify-center text-[10px] font-medium text-[var(--muted)]">AV</div>
+                    <div>
+                      <div class="font-medium">Aver Generics</div>
+                      <div class="text-[11px] text-[var(--muted)]">Consolidated</div>
+                    </div>
+                  </div>
+                </td>
+                <td class="tnum text-[var(--muted)]">AVR‑01288</td>
+                <td class="tnum">18</td>
+                <td class="tnum">£1,042.00</td>
+                <td><span class="pill pill-ok">Reconciled</span></td>
+                <td class="text-right"><button class="btn btn-ghost !py-1.5 !px-3 text-[12px]">View →</button></td>
+              </tr>
+              <tr class="cursor-pointer">
+                <td>
+                  <div class="flex items-center gap-2.5">
+                    <div class="w-7 h-7 rounded-md bg-[var(--surface-raised)] border border-[var(--border)] flex items-center justify-center text-[10px] font-medium text-[var(--muted)]">AL</div>
+                    <div>
+                      <div class="font-medium">Alliance Healthcare</div>
+                      <div class="text-[11px] text-[var(--muted)]">Box 1 of 2</div>
+                    </div>
+                  </div>
+                </td>
+                <td class="tnum text-[var(--muted)]">AH‑992013</td>
+                <td class="tnum">31</td>
+                <td class="tnum">£1,507.88</td>
+                <td><span class="pill pill-alert">3 shorts</span></td>
+                <td class="text-right"><button class="btn btn-secondary !py-1.5 !px-3 text-[12px]">Review</button></td>
+              </tr>
+              <tr class="cursor-pointer">
+                <td>
+                  <div class="flex items-center gap-2.5">
+                    <div class="w-7 h-7 rounded-md bg-[var(--surface-raised)] border border-[var(--border)] flex items-center justify-center text-[10px] font-medium text-[var(--muted)]">AL</div>
+                    <div>
+                      <div class="font-medium">Alliance Healthcare</div>
+                      <div class="text-[11px] text-[var(--muted)]">Box 2 of 2</div>
+                    </div>
+                  </div>
+                </td>
+                <td class="tnum text-[var(--muted)]">AH‑992014</td>
+                <td class="tnum">12</td>
+                <td class="tnum">£412.60</td>
+                <td><span class="pill pill-ok">Reconciled</span></td>
+                <td class="text-right"><button class="btn btn-ghost !py-1.5 !px-3 text-[12px]">View →</button></td>
+              </tr>
+              <tr class="cursor-pointer">
+                <td>
+                  <div class="flex items-center gap-2.5">
+                    <div class="w-7 h-7 rounded-md bg-[var(--surface-raised)] border border-[var(--border)] flex items-center justify-center text-[10px] font-medium text-[var(--muted)]">PH</div>
+                    <div>
+                      <div class="font-medium">Phoenix Healthcare</div>
+                      <div class="text-[11px] text-[var(--muted)]">Single invoice</div>
+                    </div>
+                  </div>
+                </td>
+                <td class="tnum text-[var(--muted)]">PX‑77112</td>
+                <td class="tnum">9</td>
+                <td class="tnum">£318.40</td>
+                <td><span class="pill pill-ok">Reconciled</span></td>
+                <td class="text-right"><button class="btn btn-ghost !py-1.5 !px-3 text-[12px]">View →</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Month-end progress -->
+        <div class="card p-5">
+          <div class="flex items-center justify-between">
+            <h2 class="text-[15px] font-semibold">April reconciliation</h2>
+            <span class="pill pill-info">Day 22 of 30</span>
+          </div>
+          <p class="text-[12px] text-[var(--muted)] mt-0.5 mb-4">Progress per supplier against statements.</p>
+
+          <div class="space-y-4">
+            <!-- AAH -->
+            <div>
+              <div class="flex items-center justify-between text-[12px] mb-1.5">
+                <span class="font-medium">AAH Pharmaceuticals</span>
+                <span class="text-[var(--muted)] tnum">168 / 182 lines</span>
+              </div>
+              <div class="matchbar"><span style="width: 92%; background: var(--brand-green);"></span></div>
+              <div class="flex items-center justify-between mt-1 text-[11px] text-[var(--muted)]">
+                <span>14 lines pending credit</span>
+                <span class="tnum">92%</span>
+              </div>
+            </div>
+            <!-- Alliance -->
+            <div>
+              <div class="flex items-center justify-between text-[12px] mb-1.5">
+                <span class="font-medium">Alliance Healthcare</span>
+                <span class="text-[var(--muted)] tnum">98 / 114 lines</span>
+              </div>
+              <div class="matchbar"><span style="width: 86%; background: var(--brand-teal);"></span></div>
+              <div class="flex items-center justify-between mt-1 text-[11px] text-[var(--muted)]">
+                <span>16 lines, 3 unchased</span>
+                <span class="tnum">86%</span>
+              </div>
+            </div>
+            <!-- Phoenix -->
+            <div>
+              <div class="flex items-center justify-between text-[12px] mb-1.5">
+                <span class="font-medium">Phoenix Healthcare</span>
+                <span class="text-[var(--muted)] tnum">72 / 74 lines</span>
+              </div>
+              <div class="matchbar"><span style="width: 97%; background: var(--brand-green);"></span></div>
+              <div class="flex items-center justify-between mt-1 text-[11px] text-[var(--muted)]">
+                <span>2 lines, awaiting statement</span>
+                <span class="tnum">97%</span>
+              </div>
+            </div>
+            <!-- Aver -->
+            <div>
+              <div class="flex items-center justify-between text-[12px] mb-1.5">
+                <span class="font-medium">Aver Generics</span>
+                <span class="text-[var(--muted)] tnum">54 / 54 lines</span>
+              </div>
+              <div class="matchbar"><span style="width: 100%; background: var(--brand-green);"></span></div>
+              <div class="flex items-center justify-between mt-1 text-[11px] text-[var(--muted)]">
+                <span>All statements matched</span>
+                <span class="tnum">100%</span>
+              </div>
+            </div>
+            <!-- Ethigen -->
+            <div>
+              <div class="flex items-center justify-between text-[12px] mb-1.5">
+                <span class="font-medium">Ethigen</span>
+                <span class="text-[var(--muted)] tnum">41 / 48 lines</span>
+              </div>
+              <div class="matchbar"><span style="width: 85%; background: var(--brand-teal);"></span></div>
+              <div class="flex items-center justify-between mt-1 text-[11px] text-[var(--muted)]">
+                <span>7 lines, 2 missing invoices</span>
+                <span class="tnum">85%</span>
+              </div>
+            </div>
+            <!-- Numark -->
+            <div>
+              <div class="flex items-center justify-between text-[12px] mb-1.5">
+                <span class="font-medium">Numark</span>
+                <span class="text-[var(--muted)] tnum">22 / 28 lines</span>
+              </div>
+              <div class="matchbar"><span style="width: 78%; background: #f59e0b;"></span></div>
+              <div class="flex items-center justify-between mt-1 text-[11px] text-[var(--muted)]">
+                <span>6 lines, 1 disputed total</span>
+                <span class="tnum">78%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom row: credits + savings insight -->
+      <div class="grid grid-cols-3 gap-4">
+        <div class="card p-5 col-span-2">
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="text-[15px] font-semibold">Credits waiting on suppliers</h2>
+              <p class="text-[12px] text-[var(--muted)] mt-0.5">Oldest first — anything over 14 days shows in red.</p>
+            </div>
+            <button class="btn btn-secondary !py-1.5 !px-3 text-[12px]">Chase all</button>
+          </div>
+          <div class="mt-4 space-y-1">
+            <div class="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-[var(--surface-raised)] transition">
+              <div class="flex items-center gap-3">
+                <span class="pill pill-alert">28 days</span>
+                <span class="font-medium">Amoxicillin 500mg caps 21</span>
+                <span class="text-[12px] text-[var(--muted)]">AAH · INV‑44102 · short 2 packs</span>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="tnum text-[13px] font-medium">£18.40</span>
+                <button class="btn btn-ghost !py-1 !px-2 text-[12px]">Chase →</button>
+              </div>
+            </div>
+            <div class="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-[var(--surface-raised)] transition">
+              <div class="flex items-center gap-3">
+                <span class="pill pill-alert">21 days</span>
+                <span class="font-medium">Metformin 500mg MR 56</span>
+                <span class="text-[12px] text-[var(--muted)]">Alliance · AH‑988201 · damaged</span>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="tnum text-[13px] font-medium">£32.80</span>
+                <button class="btn btn-ghost !py-1 !px-2 text-[12px]">Chase →</button>
+              </div>
+            </div>
+            <div class="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-[var(--surface-raised)] transition">
+              <div class="flex items-center gap-3">
+                <span class="pill pill-warn">16 days</span>
+                <span class="font-medium">Atorvastatin 40mg tabs 28</span>
+                <span class="text-[12px] text-[var(--muted)]">Phoenix · PX‑76988 · expired batch</span>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="tnum text-[13px] font-medium">£42.10</span>
+                <button class="btn btn-ghost !py-1 !px-2 text-[12px]">Chase →</button>
+              </div>
+            </div>
+            <div class="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-[var(--surface-raised)] transition">
+              <div class="flex items-center gap-3">
+                <span class="pill pill-warn">11 days</span>
+                <span class="font-medium">Ramipril 5mg caps 28</span>
+                <span class="text-[12px] text-[var(--muted)]">AAH · INV‑44311 · not received</span>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="tnum text-[13px] font-medium">£8.20</span>
+                <button class="btn btn-ghost !py-1 !px-2 text-[12px]">Chase →</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Insight -->
+        <div class="card p-5" style="background: linear-gradient-off; border-color: var(--border);">
+          <h2 class="text-[15px] font-semibold">Saving this month</h2>
+          <div class="mt-4">
+            <div class="text-[32px] font-semibold tnum" style="color: var(--brand-green);">£847.30</div>
+            <div class="text-[12px] text-[var(--muted)]">recovered via credit notes (Apr)</div>
+          </div>
+          <div class="divider my-5">Insights</div>
+          <div class="space-y-3 text-[12px]">
+            <div class="flex items-start gap-2.5">
+              <div class="w-1 h-1 mt-2 rounded-full bg-[var(--muted-light)] shrink-0"></div>
+              <div>
+                <div class="text-[var(--foreground)]">Phoenix is <span class="font-medium">6.2% cheaper</span> than AAH on atorvastatin 40mg. 340 packs ordered last quarter from AAH.</div>
+                <div class="text-[var(--muted)] mt-0.5">Potential saving: ~£78/quarter</div>
+              </div>
+            </div>
+            <div class="flex items-start gap-2.5">
+              <div class="w-1 h-1 mt-2 rounded-full bg-[var(--muted-light)] shrink-0"></div>
+              <div>
+                <div class="text-[var(--foreground)]">Alliance short-ships <span class="font-medium">3x more often</span> than sector average (11.4% vs 3.2%).</div>
+                <div class="text-[var(--muted)] mt-0.5">Escalate with rep?</div>
+              </div>
+            </div>
+            <div class="flex items-start gap-2.5">
+              <div class="w-1 h-1 mt-2 rounded-full bg-[var(--muted-light)] shrink-0"></div>
+              <div>
+                <div class="text-[var(--foreground)]">9 credits unchased &gt; 14 days.</div>
+                <div class="text-[var(--muted)] mt-0.5">Batch-send reminders</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================= -->
+    <!-- DELIVERIES — LIST + DETAIL -->
+    <!-- ============================================================= -->
+    <section class="page p-6 space-y-6" data-page="deliveries">
+      <!-- Detail view (invoice tick-off) -->
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2 text-[13px]">
+          <button class="btn-ghost btn !py-1 !px-2" onclick="showPage('deliveries')">← All deliveries</button>
+          <span class="text-[var(--muted-light)]">/</span>
+          <div class="w-6 h-6 rounded bg-[var(--surface-raised)] border border-[var(--border)] flex items-center justify-center text-[10px] font-medium text-[var(--muted)]">AAH</div>
+          <span class="font-medium">AAH Pharmaceuticals</span>
+          <span class="text-[var(--muted)]">· INV‑44821A · Box 1 of 3</span>
+          <span class="pill pill-warn ml-2">Needs check</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="btn btn-secondary" data-action="scan">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Scan another
+          </button>
+          <button class="btn btn-secondary">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21,15 16,10 5,21"/></svg>
+            View scanned invoice
+          </button>
+          <button class="btn btn-green">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg>
+            Finalise & draft credits
+          </button>
+        </div>
+      </div>
+
+      <!-- Invoice header (live totals) -->
+      <div class="grid grid-cols-4 gap-4">
+        <div class="card p-4">
+          <div class="section-label">Invoice value</div>
+          <div class="mt-1 text-[22px] font-semibold tnum" id="to-invoice-value">£—</div>
+          <div class="text-[12px] text-[var(--muted)] mt-0.5"><span id="to-invoice-lines">0</span> lines · net 30</div>
+        </div>
+        <div class="card p-4">
+          <div class="section-label">Matched</div>
+          <div class="mt-1 text-[22px] font-semibold tnum" style="color: var(--brand-green);" id="to-matched-count">0</div>
+          <div class="text-[12px] text-[var(--muted)] mt-0.5" id="to-matched-value">£0.00</div>
+        </div>
+        <div class="card p-4">
+          <div class="section-label">Discrepancies</div>
+          <div class="mt-1 text-[22px] font-semibold tnum" style="color: #fbbf24;" id="to-disc-count">0</div>
+          <div class="text-[12px] text-[var(--muted)] mt-0.5"><span id="to-disc-value">£0.00</span> queued</div>
+        </div>
+        <div class="card p-4">
+          <div class="section-label">Progress</div>
+          <div class="mt-1 text-[22px] font-semibold tnum"><span id="to-prog-done">0</span> <span class="text-[13px] text-[var(--muted)] font-normal">/ <span id="to-prog-total">0</span></span></div>
+          <div class="matchbar mt-2"><span id="to-prog-bar" style="width: 0%; background: var(--brand-teal);"></span></div>
+        </div>
+      </div>
+
+      <!-- Tick off workspace -->
+      <div class="card overflow-hidden">
+        <!-- Tabs -->
+        <div class="flex items-center justify-between border-b border-[var(--border)]">
+          <div class="flex">
+            <button class="tab active" data-to-tab="all">All lines · <span id="to-tab-all">0</span></button>
+            <button class="tab" data-to-tab="disc">Discrepancies · <span id="to-tab-disc">0</span></button>
+          </div>
+          <div class="flex items-center gap-2 px-4">
+            <input id="to-filter" class="input !py-1.5 text-[12px] w-48" placeholder="Filter by product or SKU…" />
+            <span class="text-[11px] text-[var(--muted)]">All lines received by default — click to flag exceptions</span>
+          </div>
+        </div>
+
+        <table class="data">
+          <thead>
+            <tr>
+              <th style="width: 40px;"></th>
+              <th>Product (on invoice)</th>
+              <th>Supplier SKU</th>
+              <th>Mapped to</th>
+              <th class="text-right">Qty</th>
+              <th class="text-right">Recv</th>
+              <th class="text-right">Unit</th>
+              <th>Reason</th>
+              <th class="text-right">Line total</th>
+            </tr>
+          </thead>
+          <tbody id="to-tbody">
+            <!-- rendered by JS -->
+          </tbody>
+        </table>
+
+        <!-- Footer bar -->
+        <div class="flex items-center justify-between px-4 py-3 border-t border-[var(--border)] bg-[var(--surface-raised)]">
+          <div class="flex items-center gap-6 text-[12px]">
+            <span><span class="text-[var(--muted)]">Received</span> <span class="font-medium" style="color: var(--brand-green);" id="to-f-ticked">0</span></span>
+            <span><span class="text-[var(--muted)]">Short</span> <span class="font-medium" style="color: #fbbf24;" id="to-f-short">0</span></span>
+            <span><span class="text-[var(--muted)]">Damaged</span> <span class="font-medium" style="color: #fb7185;" id="to-f-damage">0</span></span>
+            <span><span class="text-[var(--muted)]">Not received</span> <span class="font-medium" style="color: #fb7185;" id="to-f-notrecv">0</span></span>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="text-[12px] text-[var(--muted)]" id="to-autosave">Ready</span>
+            <button class="btn btn-green" id="to-finalise-btn" onclick="openFinaliseDrawer()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg>
+              Finalise & draft credits
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================= -->
+    <!-- FINALISE DRAWER — review & send supplier emails -->
+    <!-- ============================================================= -->
+    <div class="modal-backdrop" id="finalise-modal">
+      <div class="modal" style="width: min(820px, calc(100vw - 48px));">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
+          <div>
+            <div class="text-[15px] font-semibold">Review & send credit requests</div>
+            <div class="text-[11px] text-[var(--muted)] mt-0.5" id="fin-subtitle">—</div>
+          </div>
+          <button class="btn btn-ghost !p-2" onclick="closeFinaliseDrawer()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="px-5 py-5 overflow-y-auto" style="max-height: calc(100vh - 220px);" id="fin-body">
+          <!-- rendered on open -->
+        </div>
+        <div class="flex items-center justify-between px-5 py-3.5 border-t border-[var(--border)] bg-[var(--surface-raised)]">
+          <div class="text-[11px] text-[var(--muted)]" id="fin-foot-text">—</div>
+          <div class="flex items-center gap-2">
+            <button class="btn btn-secondary" onclick="closeFinaliseDrawer()">Keep drafting</button>
+            <button class="btn btn-green" id="fin-send-btn" onclick="sendFinalise()">Send to supplier →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- CREDIT NOTES -->
+    <!-- ============================================================= -->
+    <section class="page p-6 space-y-6" data-page="credits">
+      <div class="flex items-end justify-between">
+        <div>
+          <div class="section-label">Credit notes</div>
+          <h1 class="mt-1 text-[22px] font-semibold tracking-tight">Drafts & chases</h1>
+          <p class="text-[13px] text-[var(--muted)] mt-1">Review drafts, approve batches, send to suppliers in one go.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="btn btn-secondary">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/></svg>
+            Batch by supplier
+          </button>
+          <button class="btn btn-primary" onclick="sendAllDrafts()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+            Send all drafts
+          </button>
+        </div>
+      </div>
+
+      <!-- Stat row -->
+      <div class="grid grid-cols-4 gap-4">
+        <div class="card stat-accent stat-accent-amber p-4">
+          <div class="section-label">Drafts</div>
+          <div class="mt-1 flex items-baseline gap-2">
+            <span class="text-[26px] font-semibold tnum">14</span>
+            <span class="text-[12px] text-[var(--muted)]">£482.17</span>
+          </div>
+        </div>
+        <div class="card stat-accent stat-accent-teal p-4">
+          <div class="section-label">Sent · awaiting credit</div>
+          <div class="mt-1 flex items-baseline gap-2">
+            <span class="text-[26px] font-semibold tnum">23</span>
+            <span class="text-[12px] text-[var(--muted)]">£1,241.08</span>
+          </div>
+        </div>
+        <div class="card stat-accent stat-accent-green p-4">
+          <div class="section-label">Recovered (Apr)</div>
+          <div class="mt-1 flex items-baseline gap-2">
+            <span class="text-[26px] font-semibold tnum" style="color: var(--brand-green);">£847.30</span>
+          </div>
+        </div>
+        <div class="card stat-accent stat-accent-red p-4">
+          <div class="section-label">Disputed by supplier</div>
+          <div class="mt-1 flex items-baseline gap-2">
+            <span class="text-[26px] font-semibold tnum">2</span>
+            <span class="text-[12px] text-[var(--muted)]">£48.20</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Two-pane: queue + email preview -->
+      <div class="grid grid-cols-5 gap-4">
+        <!-- Queue -->
+        <div class="card col-span-3 overflow-hidden">
+          <div class="flex items-center justify-between border-b border-[var(--border)]">
+            <div class="flex">
+              <div class="tab active">Drafts · 14</div>
+              <div class="tab">Sent · 23</div>
+              <div class="tab">Recovered · 61</div>
+              <div class="tab">Disputed · 2</div>
+            </div>
+          </div>
+          <table class="data">
+            <thead>
+              <tr>
+                <th style="width: 40px;"><input type="checkbox" class="accent-[var(--brand-teal)]" checked /></th>
+                <th>Supplier</th>
+                <th>Product</th>
+                <th>Reason</th>
+                <th>Age</th>
+                <th class="text-right">Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><input type="checkbox" class="accent-[var(--brand-teal)]" checked /></td>
+                <td><div class="flex items-center gap-2"><div class="w-6 h-6 rounded bg-[var(--surface-raised)] border border-[var(--border)] flex items-center justify-center text-[10px] font-medium text-[var(--muted)]">AAH</div><span class="font-medium">AAH</span></div></td>
+                <td><div class="font-medium">Metformin 500mg MR 56</div><div class="text-[11px] text-[var(--muted)]">INV‑44821A · line 03</div></td>
+                <td><span class="pill pill-warn">Short 2</span></td>
+                <td class="text-[12px]">Today</td>
+                <td class="text-right tnum font-medium">£8.20</td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" class="accent-[var(--brand-teal)]" checked /></td>
+                <td><div class="flex items-center gap-2"><div class="w-6 h-6 rounded bg-[var(--surface-raised)] border border-[var(--border)] flex items-center justify-center text-[10px] font-medium text-[var(--muted)]">AAH</div><span class="font-medium">AAH</span></div></td>
+                <td><div class="font-medium">Ramipril 5mg caps 28</div><div class="text-[11px] text-[var(--muted)]">INV‑44821A · line 04</div></td>
+                <td><span class="pill pill-alert">Damaged</span></td>
+                <td class="text-[12px]">Today</td>
+                <td class="text-right tnum font-medium">£8.20</td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" class="accent-[var(--brand-teal)]" checked /></td>
+                <td><div class="flex items-center gap-2"><div class="w-6 h-6 rounded bg-[var(--surface-raised)] border border-[var(--border)] flex items-center justify-center text-[10px] font-medium text-[var(--muted)]">AL</div><span class="font-medium">Alliance</span></div></td>
+                <td><div class="font-medium">Co‑codamol 30/500 100</div><div class="text-[11px] text-[var(--muted)]">AH‑992013 · line 18</div></td>
+                <td><span class="pill pill-warn">Short 5</span></td>
+                <td class="text-[12px]">Today</td>
+                <td class="text-right tnum font-medium">£42.50</td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" class="accent-[var(--brand-teal)]" checked /></td>
+                <td><div class="flex items-center gap-2"><div class="w-6 h-6 rounded bg-[var(--surface-raised)] border border-[var(--border)] flex items-center justify-center text-[10px] font-medium text-[var(--muted)]">AL</div><span class="font-medium">Alliance</span></div></td>
+                <td><div class="font-medium">Sertraline 50mg tabs 28</div><div class="text-[11px] text-[var(--muted)]">AH‑992013 · line 22</div></td>
+                <td><span class="pill pill-alert">Not received</span></td>
+                <td class="text-[12px]">Today</td>
+                <td class="text-right tnum font-medium">£14.40</td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" class="accent-[var(--brand-teal)]" checked /></td>
+                <td><div class="flex items-center gap-2"><div class="w-6 h-6 rounded bg-[var(--surface-raised)] border border-[var(--border)] flex items-center justify-center text-[10px] font-medium text-[var(--muted)]">AL</div><span class="font-medium">Alliance</span></div></td>
+                <td><div class="font-medium">Omeprazole 20mg caps 28</div><div class="text-[11px] text-[var(--muted)]">AH‑992013 · line 27</div></td>
+                <td><span class="pill pill-warn">Wrong product</span></td>
+                <td class="text-[12px]">Today</td>
+                <td class="text-right tnum font-medium">£3.60</td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" class="accent-[var(--brand-teal)]" /></td>
+                <td><div class="flex items-center gap-2"><div class="w-6 h-6 rounded bg-[var(--surface-raised)] border border-[var(--border)] flex items-center justify-center text-[10px] font-medium text-[var(--muted)]">PH</div><span class="font-medium">Phoenix</span></div></td>
+                <td><div class="font-medium">Atorvastatin 40mg tabs 28</div><div class="text-[11px] text-[var(--muted)]">PX‑76988 · line 07 · expired batch</div></td>
+                <td><span class="pill pill-alert">Expired</span></td>
+                <td class="text-[12px]">16d</td>
+                <td class="text-right tnum font-medium">£42.10</td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" class="accent-[var(--brand-teal)]" /></td>
+                <td><div class="flex items-center gap-2"><div class="w-6 h-6 rounded bg-[var(--surface-raised)] border border-[var(--border)] flex items-center justify-center text-[10px] font-medium text-[var(--muted)]">AAH</div><span class="font-medium">AAH</span></div></td>
+                <td><div class="font-medium">Bisoprolol 2.5mg tabs 28</div><div class="text-[11px] text-[var(--muted)]">INV‑43881 · line 12</div></td>
+                <td><span class="pill pill-warn">Short 1</span></td>
+                <td class="text-[12px]">4d</td>
+                <td class="text-right tnum font-medium">£2.84</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Email preview -->
+        <div class="card col-span-2 overflow-hidden">
+          <div class="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
+            <div>
+              <div class="text-[13px] font-semibold">Draft email · AAH batch</div>
+              <div class="text-[11px] text-[var(--muted)] mt-0.5">2 lines · £16.40</div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button class="btn btn-ghost !py-1 !px-2 text-[12px]">Edit template</button>
+              <button class="btn btn-green !py-1.5 !px-3 text-[12px]" onclick="sendAAHBatchDraft()">Send</button>
+            </div>
+          </div>
+          <div class="p-5">
+            <div class="space-y-3 text-[12px]">
+              <div class="flex gap-3">
+                <span class="text-[var(--muted)] w-12 shrink-0">To</span>
+                <span>credits@aah.co.uk</span>
+              </div>
+              <div class="flex gap-3">
+                <span class="text-[var(--muted)] w-12 shrink-0">Cc</span>
+                <span class="text-[var(--muted)]">karen.mitchell@aah.co.uk (rep)</span>
+              </div>
+              <div class="flex gap-3">
+                <span class="text-[var(--muted)] w-12 shrink-0">Subject</span>
+                <span class="font-medium">Credit request —2 lines — £16.40</span>
+              </div>
+            </div>
+            <div class="border-t border-[var(--border-subtle)] my-4"></div>
+            <div class="text-[13px] space-y-3 leading-relaxed">
+              <div>Hi Karen,</div>
+              <div>We've checked off today's delivery (INV‑44821A) and found 2 lines short. Could you raise a credit note for the below?</div>
+              <div class="card-raised rounded-lg border border-[var(--border)] mt-2">
+                <table class="data" style="font-size: 12px;">
+                  <thead><tr><th>Product</th><th>Invoiced</th><th>Received</th><th class="text-right">Credit</th></tr></thead>
+                  <tbody>
+                    <tr><td>Metformin 500mg MR 56 (SKU 3322194)</td><td class="tnum">8</td><td class="tnum">6</td><td class="text-right tnum font-medium">£8.20</td></tr>
+                    <tr><td>Ramipril 5mg caps 28 (SKU 4781223) — damaged</td><td class="tnum">4</td><td class="tnum">4</td><td class="text-right tnum font-medium">£8.20</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div>Photos attached for the damaged Ramipril pack. Let me know if you need anything else.</div>
+              <div>Thanks,<br/>Jethro</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================= -->
+    <!-- STATEMENTS — invoice-level reconciliation -->
+    <!-- ============================================================= -->
+    <section class="page p-6 space-y-6" data-page="statements">
+      <div class="flex items-end justify-between">
+        <div>
+          <div class="section-label">April 2026 · statement reconciliation</div>
+          <h1 class="mt-1 text-[22px] font-semibold tracking-tight">AAH Pharmaceuticals</h1>
+          <p class="text-[13px] text-[var(--muted)] mt-1">Statement 44102 · issued 21 April · 38 invoices · £8,244.17 · due 28 April. Matching invoice totals against what we expect to pay.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="btn btn-secondary">Switch supplier</button>
+          <button class="btn btn-secondary">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Paste statement
+          </button>
+          <button class="btn btn-primary">Close month</button>
+        </div>
+      </div>
+
+      <!-- How it works strip -->
+      <div class="card card-raised px-5 py-3 flex items-center gap-6 text-[12px]">
+        <div class="flex items-center gap-2">
+          <span class="w-5 h-5 rounded-full bg-[var(--brand-teal-soft)] text-[var(--brand-teal)] flex items-center justify-center text-[10px] font-semibold">1</span>
+          <span class="font-medium">Invoice total</span>
+          <span class="text-[var(--muted)]">what supplier billed us</span>
+        </div>
+        <span class="text-[var(--muted-light)]">−</span>
+        <div class="flex items-center gap-2">
+          <span class="w-5 h-5 rounded-full bg-[var(--brand-teal-soft)] text-[var(--brand-teal)] flex items-center justify-center text-[10px] font-semibold">2</span>
+          <span class="font-medium">Credits expected</span>
+          <span class="text-[var(--muted)]">from tick-off discrepancies</span>
+        </div>
+        <span class="text-[var(--muted-light)]">=</span>
+        <div class="flex items-center gap-2">
+          <span class="w-5 h-5 rounded-full bg-[var(--brand-green-soft)] text-[#a8d472] flex items-center justify-center text-[10px] font-semibold">3</span>
+          <span class="font-medium">Expected on statement</span>
+        </div>
+        <span class="text-[var(--muted-light)]">vs</span>
+        <div class="flex items-center gap-2">
+          <span class="w-5 h-5 rounded-full bg-[var(--brand-navy-soft)] text-[#a2c3ed] flex items-center justify-center text-[10px] font-semibold">4</span>
+          <span class="font-medium">Statement total</span>
+          <span class="text-[var(--muted)]">what they're actually charging</span>
+        </div>
+      </div>
+
+      <!-- Summary row -->
+      <div class="grid grid-cols-4 gap-4">
+        <div class="card stat-accent stat-accent-green p-4">
+          <div class="section-label">Invoices matched</div>
+          <div class="mt-1 flex items-baseline gap-2">
+            <span class="text-[26px] font-semibold tnum" style="color: var(--brand-green);">32</span>
+            <span class="text-[12px] text-[var(--muted)]">of 38</span>
+          </div>
+          <div class="matchbar mt-2"><span style="width: 84%; background: var(--brand-green);"></span></div>
+          <div class="text-[11px] text-[var(--muted)] mt-2">Statement total = expected total</div>
+        </div>
+        <div class="card stat-accent stat-accent-amber p-4">
+          <div class="section-label">Credit pending</div>
+          <div class="mt-1 flex items-baseline gap-2">
+            <span class="text-[26px] font-semibold tnum" style="color: #fbbf24;">4</span>
+            <span class="text-[12px] text-[var(--muted)]">£148.40</span>
+          </div>
+          <div class="text-[11px] text-[var(--muted)] mt-1.5">Full invoice charged, credit not applied yet</div>
+        </div>
+        <div class="card stat-accent stat-accent-red p-4">
+          <div class="section-label">Variance (unexplained)</div>
+          <div class="mt-1 flex items-baseline gap-2">
+            <span class="text-[26px] font-semibold tnum" style="color: #fb7185;">2</span>
+            <span class="text-[12px] text-[var(--muted)]">±£43.60</span>
+          </div>
+          <div class="text-[11px] text-[var(--muted)] mt-1.5">Statement doesn't match what we expect</div>
+        </div>
+        <div class="card stat-accent stat-accent-navy p-4">
+          <div class="section-label">Orphans</div>
+          <div class="mt-1 flex items-baseline gap-2">
+            <span class="text-[26px] font-semibold tnum" style="color: #a2c3ed;">3</span>
+            <span class="text-[12px] text-[var(--muted)]">£80.80</span>
+          </div>
+          <div class="text-[11px] text-[var(--muted)] mt-1.5">Invoice missing one side — roll or chase</div>
+        </div>
+      </div>
+
+      <!-- Invoice reconciliation table -->
+      <div class="card overflow-hidden">
+        <div class="flex items-center justify-between border-b border-[var(--border)]">
+          <div class="flex">
+            <div class="tab active">Exceptions · 9</div>
+            <div class="tab">All invoices · 38</div>
+            <div class="tab">Matched · 32</div>
+          </div>
+          <div class="px-4 text-[11px] text-[var(--muted)]">9 invoices need review · matched invoices hidden</div>
+        </div>
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Invoice</th>
+              <th>Date</th>
+              <th class="text-right">Invoice total</th>
+              <th class="text-right">Credits expected</th>
+              <th class="text-right">Expected on statement</th>
+              <th class="text-right">Statement total</th>
+              <th class="text-right">Δ</th>
+              <th class="text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Invoice charged in full, credit not applied -->
+            <tr style="background: rgba(245, 158, 11, 0.04);">
+              <td><span class="pill pill-warn">Credit pending</span></td>
+              <td>
+                <div class="font-medium tnum">INV‑44821A</div>
+                <div class="text-[11px] text-[var(--muted)]">Box 1 of 3 · 47 lines</div>
+              </td>
+              <td class="tnum text-[12px]">22 Apr</td>
+              <td class="text-right tnum">£2,184.12</td>
+              <td class="text-right tnum" style="color: #fbbf24;">−£16.40</td>
+              <td class="text-right tnum font-medium">£2,167.72</td>
+              <td class="text-right tnum">£2,184.12</td>
+              <td class="text-right tnum font-medium" style="color: #fbbf24;">+£16.40</td>
+              <td class="text-right"><button class="btn btn-secondary !py-1 !px-2 text-[11px]">Chase credit</button></td>
+            </tr>
+            <tr style="background: rgba(245, 158, 11, 0.04);">
+              <td><span class="pill pill-warn">Credit pending</span></td>
+              <td>
+                <div class="font-medium tnum">INV‑44102</div>
+                <div class="text-[11px] text-[var(--muted)]">Box 1 of 2 · 34 lines</div>
+              </td>
+              <td class="tnum text-[12px]">28 Mar</td>
+              <td class="text-right tnum">£1,648.80</td>
+              <td class="text-right tnum" style="color: #fbbf24;">−£18.40</td>
+              <td class="text-right tnum font-medium">£1,630.40</td>
+              <td class="text-right tnum">£1,648.80</td>
+              <td class="text-right tnum font-medium" style="color: #fb7185;">+£18.40</td>
+              <td class="text-right"><span class="pill pill-alert">28d · escalate</span></td>
+            </tr>
+            <tr style="background: rgba(245, 158, 11, 0.04);">
+              <td><span class="pill pill-warn">Credit pending</span></td>
+              <td>
+                <div class="font-medium tnum">INV‑44311</div>
+                <div class="text-[11px] text-[var(--muted)]">Single · 18 lines</div>
+              </td>
+              <td class="tnum text-[12px]">11 Apr</td>
+              <td class="text-right tnum">£892.40</td>
+              <td class="text-right tnum" style="color: #fbbf24;">−£1.44</td>
+              <td class="text-right tnum font-medium">£890.96</td>
+              <td class="text-right tnum">£892.40</td>
+              <td class="text-right tnum font-medium" style="color: #fbbf24;">+£1.44</td>
+              <td class="text-right"><button class="btn btn-secondary !py-1 !px-2 text-[11px]">Chase credit</button></td>
+            </tr>
+            <tr style="background: rgba(124, 179, 66, 0.04);">
+              <td><span class="pill pill-ok">Credit applied</span></td>
+              <td>
+                <div class="font-medium tnum">INV‑44488</div>
+                <div class="text-[11px] text-[var(--muted)]">Box 2 of 2 · 21 lines</div>
+              </td>
+              <td class="tnum text-[12px]">15 Apr</td>
+              <td class="text-right tnum">£1,104.00</td>
+              <td class="text-right tnum">−£112.16</td>
+              <td class="text-right tnum font-medium">£991.84</td>
+              <td class="text-right tnum">£991.84</td>
+              <td class="text-right tnum font-medium" style="color: var(--brand-green);">£0.00</td>
+              <td class="text-right"><span class="pill pill-ok">Matched</span></td>
+            </tr>
+            <!-- Unexplained variance -->
+            <tr style="background: rgba(239, 68, 68, 0.04);">
+              <td><span class="pill pill-alert">Variance</span></td>
+              <td>
+                <div class="font-medium tnum">INV‑44199</div>
+                <div class="text-[11px] text-[var(--muted)]">Single · 14 lines</div>
+              </td>
+              <td class="tnum text-[12px]">8 Apr</td>
+              <td class="text-right tnum">£512.40</td>
+              <td class="text-right tnum">£0.00</td>
+              <td class="text-right tnum font-medium">£512.40</td>
+              <td class="text-right tnum">£540.80</td>
+              <td class="text-right tnum font-medium" style="color: #fb7185;">+£28.40</td>
+              <td class="text-right"><button class="btn btn-secondary !py-1 !px-2 text-[11px]">Drill into lines</button></td>
+            </tr>
+            <tr style="background: rgba(239, 68, 68, 0.04);">
+              <td><span class="pill pill-alert">Variance</span></td>
+              <td>
+                <div class="font-medium tnum">INV‑44512</div>
+                <div class="text-[11px] text-[var(--muted)]">Single · 9 lines</div>
+              </td>
+              <td class="tnum text-[12px]">17 Apr</td>
+              <td class="text-right tnum">£218.60</td>
+              <td class="text-right tnum">£0.00</td>
+              <td class="text-right tnum font-medium">£218.60</td>
+              <td class="text-right tnum">£203.40</td>
+              <td class="text-right tnum font-medium" style="color: #a2c3ed;">−£15.20</td>
+              <td class="text-right"><button class="btn btn-secondary !py-1 !px-2 text-[11px]">Drill into lines</button></td>
+            </tr>
+            <!-- Orphans -->
+            <tr style="background: rgba(239, 68, 68, 0.04);">
+              <td><span class="pill pill-alert">On statement, no invoice</span></td>
+              <td>
+                <div class="font-medium tnum">INV‑44601</div>
+                <div class="text-[11px] text-[var(--muted)]">Not in our system</div>
+              </td>
+              <td class="tnum text-[12px]">19 Apr</td>
+              <td class="text-[var(--muted-light)] text-right">—</td>
+              <td class="text-[var(--muted-light)] text-right">—</td>
+              <td class="text-[var(--muted-light)] text-right">—</td>
+              <td class="text-right tnum font-medium" style="color: #fb7185;">£38.40</td>
+              <td class="text-right tnum" style="color: #fb7185;">+£38.40</td>
+              <td class="text-right"><button class="btn btn-secondary !py-1 !px-2 text-[11px]">Find invoice</button></td>
+            </tr>
+            <tr style="background: rgba(239, 68, 68, 0.04);">
+              <td><span class="pill pill-alert">On statement, no invoice</span></td>
+              <td>
+                <div class="font-medium tnum">INV‑44702</div>
+                <div class="text-[11px] text-[var(--muted)]">Not in our system</div>
+              </td>
+              <td class="tnum text-[12px]">20 Apr</td>
+              <td class="text-[var(--muted-light)] text-right">—</td>
+              <td class="text-[var(--muted-light)] text-right">—</td>
+              <td class="text-[var(--muted-light)] text-right">—</td>
+              <td class="text-right tnum font-medium" style="color: #fb7185;">£24.00</td>
+              <td class="text-right tnum" style="color: #fb7185;">+£24.00</td>
+              <td class="text-right"><button class="btn btn-secondary !py-1 !px-2 text-[11px]">Find invoice</button></td>
+            </tr>
+            <tr style="background: rgba(45, 82, 130, 0.06);">
+              <td><span class="pill pill-navy">Invoice, no statement</span></td>
+              <td>
+                <div class="font-medium tnum">INV‑44821A</div>
+                <div class="text-[11px] text-[var(--muted)]">Damaged credit — may cycle May</div>
+              </td>
+              <td class="tnum text-[12px]">22 Apr</td>
+              <td class="text-right tnum">£18.40</td>
+              <td class="text-right tnum">−£18.40</td>
+              <td class="text-right tnum font-medium">£0.00</td>
+              <td class="text-[var(--muted-light)] text-right">—</td>
+              <td class="text-[var(--muted-light)] text-right">—</td>
+              <td class="text-right"><span class="pill pill-neutral">May cycle</span></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Footer totals -->
+        <div class="flex items-center justify-between px-4 py-3 border-t border-[var(--border)] bg-[var(--surface-raised)]">
+          <div class="flex items-center gap-6 text-[12px]">
+            <span><span class="text-[var(--muted)]">Statement total</span> <span class="font-medium tnum ml-1.5">£8,244.17</span></span>
+            <span><span class="text-[var(--muted)]">We expect to pay</span> <span class="font-medium tnum ml-1.5">£8,061.33</span></span>
+            <span><span class="text-[var(--muted)]">Open variance</span> <span class="font-medium tnum ml-1.5" style="color: #fb7185;">+£182.84</span></span>
+          </div>
+          <button class="btn btn-primary !py-1.5 !px-3 text-[12px]">Export reconciliation</button>
+        </div>
+      </div>
+
+      <!-- Drill-down (variance detail) — collapsible -->
+      <details class="card overflow-hidden">
+        <summary class="flex items-center justify-between px-5 py-3.5 cursor-pointer hover:bg-[var(--surface-raised)] transition">
+          <div class="flex items-center gap-3">
+            <svg class="w-4 h-4 text-[var(--muted)] transition-transform" style="transition: transform 150ms;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9,18 15,12 9,6"/></svg>
+            <div>
+              <div class="text-[13px] font-semibold">Why does INV‑44199 need £28.40 more than we expect?</div>
+              <div class="text-[11px] text-[var(--muted)]">Click to see the invoice lines vs what the statement implies.</div>
+            </div>
+          </div>
+          <span class="pill pill-alert">Variance £28.40</span>
+        </summary>
+        <div class="border-t border-[var(--border-subtle)] p-5 bg-[var(--background)]">
+          <p class="text-[12px] text-[var(--muted)] mb-3">This only shows when a variance is flagged — you don't normally need to see it. Opening drops in the tick-off snapshot so you can spot pricing differences fast.</p>
+          <table class="data">
+            <thead><tr><th>Line</th><th>Product (as invoiced)</th><th>Qty</th><th class="text-right">Unit</th><th class="text-right">Line total</th><th>Note</th></tr></thead>
+            <tbody>
+              <tr><td class="tnum text-[var(--muted)]">01</td><td>Atorvastatin 20mg tabs 28</td><td class="tnum">12</td><td class="text-right tnum">£1.62</td><td class="text-right tnum">£19.44</td><td class="text-[11px] text-[var(--muted)]">Matches our price history</td></tr>
+              <tr style="background: rgba(239, 68, 68, 0.04);"><td class="tnum text-[var(--muted)]">04</td><td>Ramipril 10mg caps 28</td><td class="tnum">20</td><td class="text-right tnum" style="color: #fb7185;">£3.42</td><td class="text-right tnum" style="color: #fb7185;">£68.40</td><td class="text-[11px]" style="color: #fb7185;">Price jumped from £2.20 (17 Apr). +£24.40 vs expected.</td></tr>
+              <tr><td class="tnum text-[var(--muted)]">07</td><td>Simvastatin 40mg tabs 28</td><td class="tnum">10</td><td class="text-right tnum">£1.44</td><td class="text-right tnum">£14.40</td><td class="text-[11px] text-[var(--muted)]">Matches</td></tr>
+              <tr style="background: rgba(239, 68, 68, 0.04);"><td class="tnum text-[var(--muted)]">09</td><td>Lansoprazole 30mg caps 28</td><td class="tnum">5</td><td class="text-right tnum" style="color: #fb7185;">£2.61</td><td class="text-right tnum" style="color: #fb7185;">£13.05</td><td class="text-[11px]" style="color: #fb7185;">Price jump · +£4.00 vs expected.</td></tr>
+            </tbody>
+          </table>
+          <div class="flex items-center justify-between mt-4 pt-4 border-t border-[var(--border-subtle)]">
+            <div class="text-[12px] text-[var(--muted)]">2 lines account for the £28.40 variance. Both are price increases we hadn't logged.</div>
+            <div class="flex gap-2">
+              <button class="btn btn-secondary !py-1.5 !px-3 text-[12px]">Accept new price</button>
+              <button class="btn btn-primary !py-1.5 !px-3 text-[12px]">Query with supplier</button>
+            </div>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <!-- ============================================================= -->
+    <!-- PRODUCTS — canonical + supplier comparison -->
+    <!-- ============================================================= -->
+    <section class="page p-6 space-y-6" data-page="products">
+      <div class="flex items-end justify-between">
+        <div>
+          <div class="section-label">Product catalogue</div>
+          <h1 class="mt-1 text-[22px] font-semibold tracking-tight">Canonical map · 1,847 products</h1>
+          <p class="text-[13px] text-[var(--muted)] mt-1">Single source of truth — one product, many supplier SKUs. Compare price, delivery, and short‑ship rate.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="btn btn-secondary">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+            Mapping queue · 23
+          </button>
+          <button class="btn btn-primary">+ New product</button>
+        </div>
+      </div>
+
+      <!-- Search + filters -->
+      <div class="card p-4">
+        <div class="flex items-center gap-3">
+          <div class="relative flex-1">
+            <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input class="input pl-9 w-full" placeholder="Atorvastatin, 3322194, PIP 4781223…" />
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="pill pill-neutral">Category: All</span>
+            <span class="pill pill-neutral">PIP: Any</span>
+            <span class="pill pill-neutral">Suppliers: ≥2</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Product list -->
+      <div class="card overflow-hidden">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Canonical product</th>
+              <th>PIP</th>
+              <th>Mapped</th>
+              <th>Cheapest</th>
+              <th>AAH</th>
+              <th>Alliance</th>
+              <th>Phoenix</th>
+              <th>Aver</th>
+              <th class="text-right">Short-ship</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="cursor-pointer">
+              <td>
+                <div class="font-medium">Atorvastatin 20mg tabs 28</div>
+                <div class="text-[11px] text-[var(--muted)]">Lipid regulator · POM</div>
+              </td>
+              <td class="tnum text-[var(--muted)]">4781223</td>
+              <td><span class="pill pill-green">4 / 4</span></td>
+              <td><span class="pill pill-green">Phoenix £1.52</span></td>
+              <td class="tnum">£1.62</td>
+              <td class="tnum">£1.58</td>
+              <td class="tnum font-medium" style="color: var(--brand-green);">£1.52</td>
+              <td class="tnum">£1.61</td>
+              <td class="text-right tnum text-[var(--muted)]">2.1%</td>
+            </tr>
+            <tr class="cursor-pointer">
+              <td>
+                <div class="font-medium">Metformin 500mg MR tabs 56</div>
+                <div class="text-[11px] text-[var(--muted)]">Antidiabetic · POM</div>
+              </td>
+              <td class="tnum text-[var(--muted)]">3322194</td>
+              <td><span class="pill pill-green">4 / 4</span></td>
+              <td><span class="pill pill-green">Aver £3.88</span></td>
+              <td class="tnum">£4.10</td>
+              <td class="tnum">£4.02</td>
+              <td class="tnum">£3.95</td>
+              <td class="tnum font-medium" style="color: var(--brand-green);">£3.88</td>
+              <td class="text-right tnum" style="color: #fbbf24;">6.8%</td>
+            </tr>
+            <tr class="cursor-pointer">
+              <td>
+                <div class="font-medium">Amoxicillin 500mg caps 21</div>
+                <div class="text-[11px] text-[var(--muted)]">Antibiotic · POM</div>
+              </td>
+              <td class="tnum text-[var(--muted)]">1044218</td>
+              <td><span class="pill pill-green">4 / 4</span></td>
+              <td><span class="pill pill-green">AAH £2.84</span></td>
+              <td class="tnum font-medium" style="color: var(--brand-green);">£2.84</td>
+              <td class="tnum">£2.91</td>
+              <td class="tnum">£2.88</td>
+              <td class="tnum">£2.92</td>
+              <td class="text-right tnum text-[var(--muted)]">3.4%</td>
+            </tr>
+            <tr class="cursor-pointer" style="background: rgba(45, 82, 130, 0.06);">
+              <td>
+                <div class="flex items-center gap-2">
+                  <div class="font-medium">Bisoprolol 5mg tabs 28</div>
+                  <span class="pill pill-navy">Mapping</span>
+                </div>
+                <div class="text-[11px] text-[var(--muted)]">AAH sent new SKU format 5901127 · candidate match 88%</div>
+              </td>
+              <td class="tnum text-[var(--muted)]">5901127*</td>
+              <td><span class="pill pill-warn">1 / 4</span></td>
+              <td><span class="text-[var(--muted)] text-[12px]">—</span></td>
+              <td class="tnum">£1.28</td>
+              <td class="text-[var(--muted-light)]">—</td>
+              <td class="text-[var(--muted-light)]">—</td>
+              <td class="text-[var(--muted-light)]">—</td>
+              <td class="text-right text-[var(--muted)] text-[12px]">—</td>
+            </tr>
+            <tr class="cursor-pointer">
+              <td>
+                <div class="font-medium">Omeprazole 20mg caps 28</div>
+                <div class="text-[11px] text-[var(--muted)]">PPI · POM</div>
+              </td>
+              <td class="tnum text-[var(--muted)]">5501832</td>
+              <td><span class="pill pill-green">4 / 4</span></td>
+              <td><span class="pill pill-green">Aver £1.38</span></td>
+              <td class="tnum">£1.52</td>
+              <td class="tnum">£1.44</td>
+              <td class="tnum">£1.41</td>
+              <td class="tnum font-medium" style="color: var(--brand-green);">£1.38</td>
+              <td class="text-right tnum text-[var(--muted)]">1.8%</td>
+            </tr>
+            <tr class="cursor-pointer">
+              <td>
+                <div class="font-medium">Co-codamol 30/500 tabs 100</div>
+                <div class="text-[11px] text-[var(--muted)]">Analgesic · POM CD</div>
+              </td>
+              <td class="tnum text-[var(--muted)]">2204917</td>
+              <td><span class="pill pill-green">3 / 4</span></td>
+              <td><span class="pill pill-green">AAH £8.40</span></td>
+              <td class="tnum font-medium" style="color: var(--brand-green);">£8.40</td>
+              <td class="tnum" style="color: #fb7185;">£8.72</td>
+              <td class="tnum">£8.50</td>
+              <td class="text-[var(--muted-light)]">—</td>
+              <td class="text-right tnum" style="color: #fb7185;">11.4%</td>
+            </tr>
+            <tr class="cursor-pointer">
+              <td>
+                <div class="font-medium">Sertraline 50mg tabs 28</div>
+                <div class="text-[11px] text-[var(--muted)]">SSRI · POM</div>
+              </td>
+              <td class="tnum text-[var(--muted)]">3319805</td>
+              <td><span class="pill pill-green">4 / 4</span></td>
+              <td><span class="pill pill-green">Alliance £1.44</span></td>
+              <td class="tnum">£1.52</td>
+              <td class="tnum font-medium" style="color: var(--brand-green);">£1.44</td>
+              <td class="tnum">£1.48</td>
+              <td class="tnum">£1.51</td>
+              <td class="text-right tnum text-[var(--muted)]">2.8%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============================================================= -->
+    <!-- SUPPLIERS -->
+    <!-- ============================================================= -->
+    <section class="page p-6 space-y-6" data-page="suppliers">
+      <div class="flex items-end justify-between">
+        <div>
+          <div class="section-label">Suppliers · 6 wholesalers</div>
+          <h1 class="mt-1 text-[22px] font-semibold tracking-tight">Scorecards</h1>
+          <p class="text-[13px] text-[var(--muted)] mt-1">Track price, service, and accuracy across every supplier you deal with.</p>
+        </div>
+        <button class="btn btn-primary">+ Add supplier</button>
+      </div>
+
+      <!-- Grid of supplier cards -->
+      <div class="grid grid-cols-3 gap-4">
+        <!-- AAH -->
+        <div class="card p-5">
+          <div class="flex items-start justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg bg-[var(--surface-raised)] border border-[var(--border)] flex items-center justify-center text-[12px] font-medium text-[var(--foreground)]">AAH</div>
+              <div>
+                <div class="font-semibold">AAH Pharmaceuticals</div>
+                <div class="text-[11px] text-[var(--muted)]">Multi-box · daily</div>
+              </div>
+            </div>
+            <span class="pill pill-ok">A-</span>
+          </div>
+          <div class="grid grid-cols-3 gap-2 mt-4 text-center">
+            <div><div class="text-[18px] font-semibold tnum">£22.4k</div><div class="text-[11px] text-[var(--muted)]">Apr spend</div></div>
+            <div><div class="text-[18px] font-semibold tnum">3.4%</div><div class="text-[11px] text-[var(--muted)]">short-ship</div></div>
+            <div><div class="text-[18px] font-semibold tnum">£148</div><div class="text-[11px] text-[var(--muted)]">pending</div></div>
+          </div>
+          <div class="divider my-4">contacts</div>
+          <div class="text-[12px] space-y-1">
+            <div><span class="text-[var(--muted)]">Credits:</span> credits@aah.co.uk</div>
+            <div><span class="text-[var(--muted)]">Rep:</span> Karen Mitchell</div>
+          </div>
+        </div>
+
+        <!-- Alliance -->
+        <div class="card p-5">
+          <div class="flex items-start justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg bg-[var(--surface-raised)] border border-[var(--border)] flex items-center justify-center text-[12px] font-medium text-[var(--foreground)]">AL</div>
+              <div>
+                <div class="font-semibold">Alliance Healthcare</div>
+                <div class="text-[11px] text-[var(--muted)]">Multi-box · daily</div>
+              </div>
+            </div>
+            <span class="pill pill-warn">C+</span>
+          </div>
+          <div class="grid grid-cols-3 gap-2 mt-4 text-center">
+            <div><div class="text-[18px] font-semibold tnum">£14.1k</div><div class="text-[11px] text-[var(--muted)]">Apr spend</div></div>
+            <div><div class="text-[18px] font-semibold tnum" style="color: #fb7185;">11.4%</div><div class="text-[11px] text-[var(--muted)]">short-ship</div></div>
+            <div><div class="text-[18px] font-semibold tnum">£214</div><div class="text-[11px] text-[var(--muted)]">pending</div></div>
+          </div>
+          <div class="divider my-4">contacts</div>
+          <div class="text-[12px] space-y-1">
+            <div><span class="text-[var(--muted)]">Credits:</span> credits.uk@alliance‑healthcare.co.uk</div>
+            <div><span class="text-[var(--muted)]">Rep:</span> Tom Rees</div>
+          </div>
+        </div>
+
+        <!-- Phoenix -->
+        <div class="card p-5">
+          <div class="flex items-start justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg bg-[var(--surface-raised)] border border-[var(--border)] flex items-center justify-center text-[12px] font-medium text-[var(--foreground)]">PH</div>
+              <div>
+                <div class="font-semibold">Phoenix Healthcare</div>
+                <div class="text-[11px] text-[var(--muted)]">Multi-box · daily</div>
+              </div>
+            </div>
+            <span class="pill pill-ok">A</span>
+          </div>
+          <div class="grid grid-cols-3 gap-2 mt-4 text-center">
+            <div><div class="text-[18px] font-semibold tnum">£9.8k</div><div class="text-[11px] text-[var(--muted)]">Apr spend</div></div>
+            <div><div class="text-[18px] font-semibold tnum">2.1%</div><div class="text-[11px] text-[var(--muted)]">short-ship</div></div>
+            <div><div class="text-[18px] font-semibold tnum">£42</div><div class="text-[11px] text-[var(--muted)]">pending</div></div>
+          </div>
+          <div class="divider my-4">contacts</div>
+          <div class="text-[12px] space-y-1">
+            <div><span class="text-[var(--muted)]">Credits:</span> creditnotes@phoenixuk.com</div>
+            <div><span class="text-[var(--muted)]">Rep:</span> Sarah Keane</div>
+          </div>
+        </div>
+
+        <!-- Aver -->
+        <div class="card p-5">
+          <div class="flex items-start justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg bg-[var(--surface-raised)] border border-[var(--border)] flex items-center justify-center text-[12px] font-medium text-[var(--foreground)]">AV</div>
+              <div>
+                <div class="font-semibold">Aver Generics</div>
+                <div class="text-[11px] text-[var(--muted)]">Consolidated · daily</div>
+              </div>
+            </div>
+            <span class="pill pill-ok">A+</span>
+          </div>
+          <div class="grid grid-cols-3 gap-2 mt-4 text-center">
+            <div><div class="text-[18px] font-semibold tnum">£6.2k</div><div class="text-[11px] text-[var(--muted)]">Apr spend</div></div>
+            <div><div class="text-[18px] font-semibold tnum">0.8%</div><div class="text-[11px] text-[var(--muted)]">short-ship</div></div>
+            <div><div class="text-[18px] font-semibold tnum">£0</div><div class="text-[11px] text-[var(--muted)]">pending</div></div>
+          </div>
+          <div class="divider my-4">contacts</div>
+          <div class="text-[12px] space-y-1">
+            <div><span class="text-[var(--muted)]">Credits:</span> accounts@avergenerics.co.uk</div>
+            <div><span class="text-[var(--muted)]">Rep:</span> Craig McDowall</div>
+          </div>
+        </div>
+
+        <!-- Ethigen -->
+        <div class="card p-5">
+          <div class="flex items-start justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg bg-[var(--surface-raised)] border border-[var(--border)] flex items-center justify-center text-[12px] font-medium text-[var(--foreground)]">ET</div>
+              <div>
+                <div class="font-semibold">Ethigen</div>
+                <div class="text-[11px] text-[var(--muted)]">Consolidated · daily</div>
+              </div>
+            </div>
+            <span class="pill pill-ok">B+</span>
+          </div>
+          <div class="grid grid-cols-3 gap-2 mt-4 text-center">
+            <div><div class="text-[18px] font-semibold tnum">£4.1k</div><div class="text-[11px] text-[var(--muted)]">Apr spend</div></div>
+            <div><div class="text-[18px] font-semibold tnum">4.2%</div><div class="text-[11px] text-[var(--muted)]">short-ship</div></div>
+            <div><div class="text-[18px] font-semibold tnum">£68</div><div class="text-[11px] text-[var(--muted)]">pending</div></div>
+          </div>
+          <div class="divider my-4">contacts</div>
+          <div class="text-[12px] space-y-1">
+            <div><span class="text-[var(--muted)]">Credits:</span> support@ethigen.com</div>
+            <div><span class="text-[var(--muted)]">Rep:</span> Mike Hollister</div>
+          </div>
+        </div>
+
+        <!-- Numark -->
+        <div class="card p-5">
+          <div class="flex items-start justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg bg-[var(--surface-raised)] border border-[var(--border)] flex items-center justify-center text-[12px] font-medium text-[var(--foreground)]">NM</div>
+              <div>
+                <div class="font-semibold">Numark</div>
+                <div class="text-[11px] text-[var(--muted)]">Single · weekly</div>
+              </div>
+            </div>
+            <span class="pill pill-warn">B-</span>
+          </div>
+          <div class="grid grid-cols-3 gap-2 mt-4 text-center">
+            <div><div class="text-[18px] font-semibold tnum">£2.4k</div><div class="text-[11px] text-[var(--muted)]">Apr spend</div></div>
+            <div><div class="text-[18px] font-semibold tnum">5.8%</div><div class="text-[11px] text-[var(--muted)]">short-ship</div></div>
+            <div><div class="text-[18px] font-semibold tnum">£22</div><div class="text-[11px] text-[var(--muted)]">pending</div></div>
+          </div>
+          <div class="divider my-4">contacts</div>
+          <div class="text-[12px] space-y-1">
+            <div><span class="text-[var(--muted)]">Credits:</span> accounts@numark.co.uk</div>
+            <div><span class="text-[var(--muted)]">Rep:</span> Jenny Park</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- Floating tick menu (portal) -->
+<div id="tick-floater" role="menu"></div>
+
+<!-- ============================================================= -->
+<!-- BULK INGEST MODAL -->
+<!-- ============================================================= -->
+<div class="modal-backdrop" id="scan-modal">
+  <div class="modal" style="width: min(920px, calc(100vw - 48px));">
+    <!-- Header -->
+    <div class="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
+      <div>
+        <div class="text-[15px] font-semibold">Ingest scanned folder</div>
+        <div class="text-[11px] text-[var(--muted)] mt-0.5">Pick a scanner folder — we'll read every invoice in it, group by supplier, and queue them for tick‑off.</div>
+      </div>
+      <button class="btn btn-ghost !p-2" onclick="closeScanModal()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <!-- Stepper -->
+    <div class="px-5 py-3 border-b border-[var(--border-subtle)] bg-[var(--surface-raised)]">
+      <div class="stepper">
+        <div class="step active" id="step-1"><span class="step-dot">1</span><span>Pick folder</span></div>
+        <div class="step-line"></div>
+        <div class="step" id="step-2"><span class="step-dot">2</span><span>Read all</span></div>
+        <div class="step-line"></div>
+        <div class="step" id="step-3"><span class="step-dot">3</span><span>Review queue</span></div>
+      </div>
+    </div>
+
+    <!-- Body -->
+    <div class="px-5 py-5 overflow-y-auto" id="modal-body" style="max-height: calc(100vh - 240px);">
+
+      <!-- STAGE 1: pick folder -->
+      <div id="stage-upload">
+        <!-- Scanner folders (what a colleague would actually click) -->
+        <div class="section-label mb-2.5">Scanner folders · last sync 3 min ago</div>
+        <div class="grid grid-cols-2 gap-2">
+          <button class="folder-row" onclick="simulateIngest('AAH')">
+            <div class="folder-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+            </div>
+            <div class="flex-1 min-w-0 text-left">
+              <div class="text-[13px] font-medium">\\scanner\AAH\2026‑04‑22</div>
+              <div class="text-[11px] text-[var(--muted)]">3 PDFs · 4.1 MB · scanned 07:42</div>
+            </div>
+            <span class="pill pill-neutral">3 invoices</span>
+          </button>
+          <button class="folder-row" onclick="simulateIngest('Alliance')">
+            <div class="folder-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+            </div>
+            <div class="flex-1 min-w-0 text-left">
+              <div class="text-[13px] font-medium">\\scanner\Alliance\2026‑04‑22</div>
+              <div class="text-[11px] text-[var(--muted)]">2 PDFs · 2.8 MB · scanned 08:03</div>
+            </div>
+            <span class="pill pill-neutral">2 invoices</span>
+          </button>
+          <button class="folder-row" onclick="simulateIngest('Phoenix')">
+            <div class="folder-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+            </div>
+            <div class="flex-1 min-w-0 text-left">
+              <div class="text-[13px] font-medium">\\scanner\Phoenix\2026‑04‑22</div>
+              <div class="text-[11px] text-[var(--muted)]">1 PDF · 1.1 MB · scanned 08:14</div>
+            </div>
+            <span class="pill pill-neutral">1 invoice</span>
+          </button>
+          <button class="folder-row" onclick="simulateIngest('Aver')">
+            <div class="folder-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+            </div>
+            <div class="flex-1 min-w-0 text-left">
+              <div class="text-[13px] font-medium">\\scanner\Aver\2026‑04‑22</div>
+              <div class="text-[11px] text-[var(--muted)]">1 PDF · 0.7 MB · scanned 08:20</div>
+            </div>
+            <span class="pill pill-neutral">1 invoice</span>
+          </button>
+          <button class="folder-row" onclick="simulateIngest('Ethigen')">
+            <div class="folder-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+            </div>
+            <div class="flex-1 min-w-0 text-left">
+              <div class="text-[13px] font-medium">\\scanner\Ethigen\2026‑04‑22</div>
+              <div class="text-[11px] text-[var(--muted)]">1 PDF · 0.7 MB · scanned 08:22</div>
+            </div>
+            <span class="pill pill-neutral">1 invoice</span>
+          </button>
+          <button class="folder-row" onclick="simulateIngest('Numark')">
+            <div class="folder-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+            </div>
+            <div class="flex-1 min-w-0 text-left">
+              <div class="text-[13px] font-medium">\\scanner\Numark\2026‑04‑19</div>
+              <div class="text-[11px] text-[var(--muted)]">1 PDF · 0.5 MB · scanned Fri</div>
+            </div>
+            <span class="pill pill-neutral">1 invoice</span>
+          </button>
+        </div>
+
+        <div class="divider mt-5 mb-3">or drop files manually</div>
+
+        <div class="dropzone" id="dropzone">
+          <div class="flex items-center justify-center gap-3">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--muted)]"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <div class="text-left">
+              <div class="text-[13px] font-medium">Drop PDFs, photos, or scans here</div>
+              <div class="text-[11px] text-[var(--muted)]">Up to 20 files — we'll sort them by supplier automatically</div>
+            </div>
+          </div>
+          <input type="file" id="file-input" class="hidden" multiple accept=".pdf,.jpg,.jpeg,.png" />
+        </div>
+      </div>
+
+      <!-- STAGE 2: batch reading -->
+      <div id="stage-reading" class="hidden">
+        <!-- Summary strip -->
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-3">
+            <div class="folder-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+            </div>
+            <div>
+              <div class="text-[13px] font-medium" id="reading-folder">\\scanner\AAH\2026‑04‑22</div>
+              <div class="text-[11px] text-[var(--muted)]"><span id="reading-status"><span class="pulse-dot">●</span> Processing batch…</span></div>
+            </div>
+          </div>
+          <div class="text-right">
+            <div class="tnum text-[15px] font-semibold" id="batch-pct">0%</div>
+            <div class="text-[11px] text-[var(--muted)]"><span id="batch-done">0</span> of <span id="batch-total">3</span> done</div>
+          </div>
+        </div>
+        <div class="matchbar mb-5"><span id="batch-bar" style="width: 0%; background: var(--brand-teal);"></span></div>
+
+        <!-- Per-file queue -->
+        <div class="section-label mb-2">Files in this folder</div>
+        <div class="card !rounded-lg overflow-hidden" id="batch-list">
+          <!-- populated by JS -->
+        </div>
+      </div>
+
+      <!-- STAGE 3: review queue -->
+      <div id="stage-confirm" class="hidden">
+        <div class="flex items-center gap-3 p-4 rounded-lg border border-[var(--brand-green)] bg-[var(--brand-green-soft)]">
+          <div class="w-9 h-9 rounded-full bg-[var(--brand-green)] flex items-center justify-center shrink-0">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0a1a0a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg>
+          </div>
+          <div class="flex-1">
+            <div class="text-[14px] font-semibold" id="confirm-title">3 invoices ready for tick‑off</div>
+            <div class="text-[12px] text-[var(--muted)] mt-0.5" id="confirm-summary">AAH Pharmaceuticals · £3,376.52 total · 78 lines · 2 new SKUs to map</div>
+          </div>
+        </div>
+
+        <!-- Invoice queue -->
+        <div class="section-label mt-5 mb-2">Start ticking off</div>
+        <div class="card !rounded-lg overflow-hidden">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Invoice</th>
+                <th>Box</th>
+                <th class="text-right">Lines</th>
+                <th class="text-right">Value</th>
+                <th>Quality</th>
+                <th class="text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody id="confirm-queue"><!-- populated --></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Footer -->
+    <div class="flex items-center justify-between px-5 py-3.5 border-t border-[var(--border)] bg-[var(--surface-raised)]">
+      <div class="text-[11px] text-[var(--muted)]" id="modal-footer-text">Files kept private to your group — not used for training.</div>
+      <div class="flex items-center gap-2">
+        <button class="btn btn-ghost" onclick="closeScanModal()">Cancel</button>
+        <button class="btn btn-primary hidden" id="modal-primary-btn" onclick="finishScan()">Open first invoice →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ---------- Page routing ----------
+  const pages = {
+    dashboard: 'Dashboard',
+    deliveries: 'Deliveries / AAH · INV‑44821A',
+    credits: 'Credit Notes',
+    statements: 'Statements / AAH · April',
+    products: 'Products',
+    suppliers: 'Suppliers',
+  };
+
+  function showPage(name) {
+    document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.dataset.page === name));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === name));
+    document.getElementById('page-crumb').textContent = pages[name] || name;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
+    btn.addEventListener('click', () => showPage(btn.dataset.page));
+  });
+
+  // ---------- Bulk Ingest Modal ----------
+  // A folder's-worth of invoices (the realistic demo: each supplier's scan folder)
+  const FOLDERS = {
+    AAH: {
+      folder: '\\\\scanner\\AAH\\2026-04-22', supplierName: 'AAH Pharmaceuticals',
+      files: [
+        { filename: 'AAH-INV-44821A-box1.pdf', size: '1.4 MB', invoice: 'INV-44821A', box: 'Box 1 of 3', lines: 47, value: '£2,184.12', quality: { high: 42, med: 4, new: 1 } },
+        { filename: 'AAH-INV-44821B-box2.pdf', size: '0.9 MB', invoice: 'INV-44821B', box: 'Box 2 of 3', lines: 22, value: '£874.50',   quality: { high: 20, med: 1, new: 1 } },
+        { filename: 'AAH-INV-44821C-box3.pdf', size: '0.8 MB', invoice: 'INV-44821C', box: 'Box 3 of 3', lines: 9,  value: '£317.90',   quality: { high: 9,  med: 0, new: 0 } },
+      ],
+    },
+    Alliance: {
+      folder: '\\\\scanner\\Alliance\\2026-04-22', supplierName: 'Alliance Healthcare',
+      files: [
+        { filename: 'AH-992013-box1.pdf', size: '1.6 MB', invoice: 'AH-992013', box: 'Box 1 of 2', lines: 31, value: '£1,507.88', quality: { high: 27, med: 3, new: 1 } },
+        { filename: 'AH-992014-box2.pdf', size: '1.2 MB', invoice: 'AH-992014', box: 'Box 2 of 2', lines: 12, value: '£412.60',   quality: { high: 11, med: 1, new: 0 } },
+      ],
+    },
+    Phoenix: {
+      folder: '\\\\scanner\\Phoenix\\2026-04-22', supplierName: 'Phoenix Healthcare',
+      files: [
+        { filename: 'PX-77112.pdf', size: '1.1 MB', invoice: 'PX-77112', box: 'Single invoice', lines: 9, value: '£318.40', quality: { high: 8, med: 1, new: 0 } },
+      ],
+    },
+    Aver: {
+      folder: '\\\\scanner\\Aver\\2026-04-22', supplierName: 'Aver Generics',
+      files: [
+        { filename: 'AVR-01288.pdf', size: '0.7 MB', invoice: 'AVR-01288', box: 'Consolidated', lines: 18, value: '£1,042.00', quality: { high: 18, med: 0, new: 0 } },
+      ],
+    },
+    Ethigen: {
+      folder: '\\\\scanner\\Ethigen\\2026-04-22', supplierName: 'Ethigen',
+      files: [
+        { filename: 'ET-44812.pdf', size: '0.7 MB', invoice: 'ET-44812', box: 'Consolidated', lines: 12, value: '£482.00', quality: { high: 10, med: 2, new: 0 } },
+      ],
+    },
+    Numark: {
+      folder: '\\\\scanner\\Numark\\2026-04-19', supplierName: 'Numark',
+      files: [
+        { filename: 'NM-22804.pdf', size: '0.5 MB', invoice: 'NM-22804', box: 'Single invoice', lines: 6, value: '£124.80', quality: { high: 5, med: 1, new: 0 } },
+      ],
+    },
+  };
+
+  const $ = (id) => document.getElementById(id);
+
+  function openScanModal() {
+    resetScanModal();
+    $('scan-modal').classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeScanModal() {
+    $('scan-modal').classList.remove('open');
+    document.body.style.overflow = '';
+  }
+
+  function resetScanModal() {
+    $('stage-upload').classList.remove('hidden');
+    $('stage-reading').classList.add('hidden');
+    $('stage-confirm').classList.add('hidden');
+    setStep(1);
+    $('modal-primary-btn').classList.add('hidden');
+    const dz = $('dropzone'); if (dz) dz.classList.remove('drag');
+    $('batch-bar').style.width = '0%';
+    $('batch-pct').textContent = '0%';
+    $('batch-done').textContent = '0';
+    $('batch-list').innerHTML = '';
+    $('confirm-queue').innerHTML = '';
+  }
+
+  function setStep(n) {
+    [1,2,3].forEach(i => {
+      const el = $('step-' + i);
+      el.classList.remove('active', 'done');
+      if (i < n) el.classList.add('done');
+      else if (i === n) el.classList.add('active');
+    });
+  }
+
+  // Entry points
+  document.querySelectorAll('[data-action="scan"]').forEach(btn => btn.addEventListener('click', openScanModal));
+
+  // Dropzone (for manual uploads) — guess supplier from filename, map to folder
+  const dropzone = $('dropzone');
+  const fileInput = $('file-input');
+  dropzone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    simulateIngest(guessSupplier(f.name));
+  });
+  ['dragenter', 'dragover'].forEach(ev =>
+    dropzone.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); dropzone.classList.add('drag'); })
+  );
+  ['dragleave', 'drop'].forEach(ev =>
+    dropzone.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); dropzone.classList.remove('drag'); })
+  );
+  dropzone.addEventListener('drop', (e) => {
+    const f = e.dataTransfer.files[0]; if (!f) return;
+    simulateIngest(guessSupplier(f.name));
+  });
+
+  function guessSupplier(name) {
+    name = name.toLowerCase();
+    if (name.includes('aah')) return 'AAH';
+    if (name.includes('alliance') || name.startsWith('ah-') || name.startsWith('ah‑')) return 'Alliance';
+    if (name.includes('phoenix') || name.startsWith('px')) return 'Phoenix';
+    if (name.includes('aver') || name.startsWith('avr')) return 'Aver';
+    if (name.includes('ethigen') || name.startsWith('et')) return 'Ethigen';
+    if (name.includes('numark') || name.startsWith('nm')) return 'Numark';
+    return 'AAH';
+  }
+
+  // ---- The ingest pipeline ----
+  function simulateIngest(supplierKey) {
+    const folder = FOLDERS[supplierKey] || FOLDERS.AAH;
+    $('stage-upload').classList.add('hidden');
+    $('stage-reading').classList.remove('hidden');
+    setStep(2);
+
+    $('reading-folder').textContent = folder.folder;
+    $('batch-total').textContent = folder.files.length;
+    $('batch-done').textContent = '0';
+    $('batch-pct').textContent = '0%';
+    $('batch-bar').style.width = '0%';
+
+    // Seed the per-file list (queued state)
+    const listEl = $('batch-list');
+    listEl.innerHTML = '';
+    folder.files.forEach((f, idx) => {
+      const row = document.createElement('div');
+      row.className = 'flex items-center gap-3 px-3.5 py-2.5 border-b border-[var(--border-subtle)]';
+      row.id = `batch-file-${idx}`;
+      row.innerHTML = `
+        <div class="file-thumb !w-[32px] !h-[40px]" style="font-size: 7px;"></div>
+        <div class="flex-1 min-w-0">
+          <div class="text-[12px] font-medium truncate">${f.filename}</div>
+          <div class="text-[11px] text-[var(--muted)] flex items-center gap-2 mt-0.5">
+            <span class="file-meta">Queued · ${f.size}</span>
+          </div>
+        </div>
+        <span class="pill pill-neutral file-badge">Queued</span>
+      `;
+      listEl.appendChild(row);
+    });
+
+    // Process each file sequentially with per-file progress
+    processFile(folder, 0);
+  }
+
+  function processFile(folder, idx) {
+    if (idx >= folder.files.length) {
+      $('reading-status').innerHTML = '<span style="color: var(--brand-green);">●</span> Done · all files read';
+      setTimeout(() => goToConfirm(folder), 550);
+      return;
+    }
+    const file = folder.files[idx];
+    const row = document.getElementById(`batch-file-${idx}`);
+    const meta = row.querySelector('.file-meta');
+    const badge = row.querySelector('.file-badge');
+    badge.textContent = 'Reading…'; badge.className = 'pill pill-info file-badge';
+    meta.innerHTML = '<span class="pulse-dot">●</span> Detecting supplier, invoice #, and lines…';
+
+    // Each file: ~900ms-1100ms
+    const fileDuration = 900 + Math.floor(Math.random() * 300);
+    const startedAt = Date.now();
+    const fileInterval = setInterval(() => {
+      const elapsed = Date.now() - startedAt;
+      const localPct = Math.min(100, elapsed / fileDuration * 100);
+      if (localPct > 55 && meta.textContent.indexOf('Detecting') >= 0) {
+        meta.innerHTML = `<span class="pulse-dot">●</span> Extracting ${file.lines} lines…`;
+      }
+      const overallPct = Math.round(((idx + localPct / 100) / folder.files.length) * 100);
+      $('batch-pct').textContent = overallPct + '%';
+      $('batch-bar').style.width = overallPct + '%';
+
+      if (localPct >= 100) {
+        clearInterval(fileInterval);
+        const q = file.quality;
+        const qparts = [];
+        if (q.high) qparts.push(`${q.high} high`);
+        if (q.med)  qparts.push(`${q.med} review`);
+        if (q.new)  qparts.push(`${q.new} new SKU`);
+        meta.innerHTML = `
+          <span>${file.invoice} · ${file.box} · ${file.lines} lines · ${file.value}</span>
+        `;
+        badge.textContent = 'Read'; badge.className = 'pill pill-green file-badge';
+        $('batch-done').textContent = idx + 1;
+        setTimeout(() => processFile(folder, idx + 1), 220);
+      }
+    }, 50);
+  }
+
+  function goToConfirm(folder) {
+    $('stage-reading').classList.add('hidden');
+    $('stage-confirm').classList.remove('hidden');
+    $('modal-primary-btn').classList.remove('hidden');
+    setStep(3);
+
+    const totalLines = folder.files.reduce((s, f) => s + f.lines, 0);
+    const totalValue = folder.files.reduce((s, f) => s + parseFloat(f.value.replace(/[£,]/g, '')), 0);
+    const totalNew = folder.files.reduce((s, f) => s + f.quality.new, 0);
+    const totalMed = folder.files.reduce((s, f) => s + f.quality.med, 0);
+
+    $('confirm-title').textContent = `${folder.files.length} invoice${folder.files.length === 1 ? '' : 's'} ready for tick‑off`;
+    $('confirm-summary').textContent = `${folder.supplierName} · £${totalValue.toFixed(2)} total · ${totalLines} lines · ${totalMed} to review, ${totalNew} new SKUs to map`;
+
+    const queue = $('confirm-queue');
+    queue.innerHTML = '';
+    folder.files.forEach((f, idx) => {
+      const tr = document.createElement('tr');
+      const qualityPill = f.quality.new > 0
+        ? `<span class="pill pill-navy">${f.quality.new} new SKU</span>`
+        : f.quality.med > 0
+          ? `<span class="pill pill-warn">${f.quality.med} review</span>`
+          : '<span class="pill pill-ok">Clean</span>';
+      tr.innerHTML = `
+        <td><div class="font-medium tnum">${f.invoice}</div><div class="text-[11px] text-[var(--muted)]">${f.filename}</div></td>
+        <td class="text-[12px] text-[var(--muted)]">${f.box}</td>
+        <td class="text-right tnum">${f.lines}</td>
+        <td class="text-right tnum font-medium">${f.value}</td>
+        <td>${qualityPill}</td>
+        <td class="text-right">
+          <button class="btn ${idx === 0 ? 'btn-primary' : 'btn-secondary'} !py-1.5 !px-3 text-[12px]" onclick="finishScan()">${idx === 0 ? 'Start' : 'Open'}</button>
+        </td>
+      `;
+      queue.appendChild(tr);
+    });
+  }
+
+  function finishScan() {
+    closeScanModal();
+    showPage('deliveries');
+  }
+
+  // ---------- Tick-off workspace (interactive) ----------
+  // Each line has: state in {'untouched','received','short','damaged'}
+  // short uses `recv` (< qty). damaged uses recv = qty but credit = full.
+  const TO_LINES = [
+    { id: 1,  product: 'AMOXICILLIN 500MG CAPS 21',      meta: 'AAH line 01 · batch L4422A · exp 10/27', sku: '1044218',  mapped: true,  qty: 5,  unit: 2.84, state: 'received' },
+    { id: 2,  product: 'ATORVASTATIN 20MG TABS 28',      meta: 'AAH line 02 · batch L1144B · exp 06/27', sku: '2047811',  mapped: true,  qty: 12, unit: 1.62, state: 'received' },
+    { id: 3,  product: 'METFORMIN 500MG MR TABS 56',     meta: 'AAH line 03 · batch L8822C · exp 02/28', sku: '3322194',  mapped: true,  qty: 8,  unit: 4.10, state: 'received' },
+    { id: 4,  product: 'RAMIPRIL 5MG CAPS 28',           meta: 'AAH line 04 · batch L2201D',             sku: '4781223',  mapped: true,  qty: 4,  unit: 2.05, state: 'received' },
+    { id: 5,  product: 'BISOPROLOL 5MG TABS 28',         meta: 'AAH line 05 · unknown SKU format',       sku: '5901127*', mapped: false, qty: 6,  unit: 1.28, state: 'received' },
+    { id: 6,  product: 'SIMVASTATIN 40MG TABS 28',       meta: 'AAH line 06 · batch L7712F · exp 11/27', sku: '6612044',  mapped: true,  qty: 10, unit: 1.44, state: 'received' },
+    { id: 7,  product: 'LANSOPRAZOLE 30MG CAPS 28',      meta: 'AAH line 07 · batch L0022G',             sku: '7091844',  mapped: true,  qty: 3,  unit: 1.81, state: 'received' },
+    { id: 8,  product: 'LOSARTAN 50MG TABS 28',          meta: 'AAH line 08 · batch L4488H',             sku: '8112003',  mapped: true,  qty: 7,  unit: 1.92, state: 'received' },
+    { id: 9,  product: 'SERTRALINE 50MG TABS 28',        meta: 'AAH line 09 · batch L9901J',             sku: '9044218',  mapped: true,  qty: 9,  unit: 1.52, state: 'received' },
+    { id: 10, product: 'CO-CODAMOL 30/500 TABS 100',     meta: 'AAH line 10 · batch L2294K · POM CD',    sku: '1122894',  mapped: true,  qty: 2,  unit: 8.40, state: 'received' },
+    { id: 11, product: 'LEVOTHYROXINE 50MCG TABS 28',    meta: 'AAH line 11 · batch L0042L',             sku: '1291044',  mapped: true,  qty: 5,  unit: 1.14, state: 'received' },
+    { id: 12, product: 'GABAPENTIN 300MG CAPS 100',      meta: 'AAH line 12 · batch L7712M · POM CD',    sku: '1404122',  mapped: true,  qty: 2,  unit: 6.80, state: 'received' },
+  ];
+  let TO_FILTER = '';
+  let TO_TAB = 'all'; // all | todo | disc
+  let TO_INVOICE = { supplier: 'AAH Pharmaceuticals', invoiceNo: 'INV-44821A', box: 'Box 1 of 3', supplierKey: 'AAH', repFirst: 'Karen', creditEmail: 'credits@aah.co.uk' };
+
+  // States: 'received' (default), 'short', 'damaged', 'not_received'
+  function lineTotal(l) { return l.qty * l.unit; }
+  function lineCredit(l) {
+    if (l.state === 'short')        return (l.qty - (l.recv ?? l.qty)) * l.unit;
+    if (l.state === 'damaged')      return l.qty * l.unit;
+    if (l.state === 'not_received') return l.qty * l.unit;
+    return 0;
+  }
+
+  function fmt(n) { return '£' + n.toFixed(2); }
+
+  function tickMarkup(state) {
+    if (state === 'short') {
+      return `<div class="tick short" title="Short — click to change">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </div>`;
+    }
+    if (state === 'damaged') {
+      return `<div class="tick damage" title="Damaged — click to change">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      </div>`;
+    }
+    if (state === 'not_received') {
+      return `<div class="tick damage" title="Not received — click to change" style="background:#8a1c1c; border-color:#8a1c1c;">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg>
+      </div>`;
+    }
+    // default: received
+    return `<div class="tick checked" title="Received in full — click to flag"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg></div>`;
+  }
+
+  function reasonMarkup(l) {
+    if (l.state === 'short')        return `<span class="pill pill-warn">Short ${l.qty - (l.recv ?? l.qty)}</span>`;
+    if (l.state === 'damaged')      return '<span class="pill pill-alert">Damaged</span>';
+    if (l.state === 'not_received') return '<span class="pill pill-alert">Not received</span>';
+    return '<span class="text-[var(--muted-light)]">—</span>';
+  }
+
+  function recvCellMarkup(l) {
+    if (l.state === 'short') {
+      const rv = l.recv ?? (l.qty - 1);
+      return `<input type="number" min="0" max="${l.qty}" value="${rv}"
+        class="input !py-1 !px-2 text-[12px] tnum w-16 text-right"
+        data-recv-id="${l.id}" style="color: #fbbf24; font-weight: 600;" />`;
+    }
+    if (l.state === 'not_received') return `<span class="tnum" style="color: #fb7185;">0</span>`;
+    return `<span class="tnum">${l.qty}</span>`;
+  }
+
+  function lineTotalCellMarkup(l) {
+    const lt = lineTotal(l);
+    const cr = lineCredit(l);
+    if (cr > 0) {
+      return `<span class="tnum">${fmt(lt)}</span><span class="block text-[11px] text-[var(--muted)]">credit ${fmt(cr)}</span>`;
+    }
+    return `<span class="tnum">${fmt(lt)}</span>`;
+  }
+
+  function rowBg(l) {
+    if (l.state === 'short')        return 'background: rgba(245, 158, 11, 0.04);';
+    if (l.state === 'damaged')      return 'background: rgba(239, 68, 68, 0.04);';
+    if (l.state === 'not_received') return 'background: rgba(239, 68, 68, 0.06);';
+    if (!l.mapped)                  return 'background: rgba(45, 82, 130, 0.06);';
+    return '';
+  }
+
+  // ---- Floating tick menu (portal to body, no table clipping) ----
+  const floater = $('tick-floater');
+  let floaterLineId = null;
+
+  function closeFloater() {
+    floater.classList.remove('open');
+    floaterLineId = null;
+  }
+
+  function openFloaterFor(btn, lineId) {
+    const l = TO_LINES.find(x => x.id === lineId);
+    if (!l) return;
+    floaterLineId = lineId;
+    floater.innerHTML = `
+      <button class="tick-menu-item" data-set-state="received">
+        <span class="tick-menu-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--brand-green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg></span>
+        <span class="tick-menu-label">Received in full<div class="tick-menu-sub">All ${l.qty} packs present</div></span>
+      </button>
+      <div class="tick-menu-sep"></div>
+      <button class="tick-menu-item" data-set-state="short">
+        <span class="tick-menu-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg></span>
+        <span class="tick-menu-label">Short<div class="tick-menu-sub">Fewer than ${l.qty} received — enter qty</div></span>
+      </button>
+      <button class="tick-menu-item danger" data-set-state="damaged">
+        <span class="tick-menu-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
+        <span class="tick-menu-label">Damaged<div class="tick-menu-sub">Received but unusable — full credit</div></span>
+      </button>
+      <button class="tick-menu-item danger" data-set-state="not_received">
+        <span class="tick-menu-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg></span>
+        <span class="tick-menu-label">Not received<div class="tick-menu-sub">Nothing arrived — full credit</div></span>
+      </button>
+    `;
+    const rect = btn.getBoundingClientRect();
+    floater.style.top  = (rect.bottom + 6) + 'px';
+    floater.style.left = rect.left + 'px';
+    floater.classList.add('open');
+  }
+
+  // Outside click closes the floater
+  document.addEventListener('click', (e) => {
+    if (floater.classList.contains('open') && !e.target.closest('#tick-floater') && !e.target.closest('[data-tick-id]')) {
+      closeFloater();
+    }
+  });
+  // Esc closes
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && floater.classList.contains('open')) closeFloater();
+  });
+  // Reposition on scroll/resize
+  ['scroll', 'resize'].forEach(ev => window.addEventListener(ev, closeFloater, true));
+
+  // Clicks inside the floater set state
+  floater.addEventListener('click', (e) => {
+    const item = e.target.closest('[data-set-state]');
+    if (!item || floaterLineId === null) return;
+    const newState = item.dataset.setState;
+    const l = TO_LINES.find(x => x.id === floaterLineId);
+    l.state = newState;
+    if (newState === 'short') {
+      if (l.recv === undefined || l.recv >= l.qty) l.recv = Math.max(0, l.qty - 1);
+    } else {
+      delete l.recv;
+    }
+    closeFloater();
+    renderTickoff();
+    updateTickoffTotals();
+    flashSave();
+  });
+
+  // ---- Tick-off table render + delegated clicks ----
+  function renderTickoff() {
+    const tbody = $('to-tbody');
+    if (!tbody) return;
+
+    const visible = TO_LINES.filter(l => {
+      if (TO_TAB === 'disc' && l.state === 'received') return false;
+      if (TO_FILTER && !(l.product.toLowerCase().includes(TO_FILTER) || l.sku.toLowerCase().includes(TO_FILTER))) return false;
+      return true;
+    });
+
+    if (visible.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-[12px] text-[var(--muted)]">${TO_TAB === 'disc' ? 'No discrepancies — everything received in full.' : 'Nothing matches that filter.'}</td></tr>`;
+    } else {
+      tbody.innerHTML = visible.map(l => `
+        <tr style="${rowBg(l)}" data-line-id="${l.id}">
+          <td>
+            <button type="button" class="bg-transparent border-0 p-0 cursor-pointer" data-tick-id="${l.id}">${tickMarkup(l.state)}</button>
+          </td>
+          <td>
+            <div class="font-medium">${l.product}</div>
+            <div class="text-[11px] text-[var(--muted)]">${l.meta}</div>
+          </td>
+          <td class="tnum text-[var(--muted)]">${l.sku}</td>
+          <td>${l.mapped ? '<span class="pill pill-green">✓ mapped</span>' : '<span class="pill pill-navy">Needs mapping</span>'}</td>
+          <td class="tnum text-right">${l.qty}</td>
+          <td class="text-right">${recvCellMarkup(l)}</td>
+          <td class="tnum text-right">${fmt(l.unit)}</td>
+          <td>${reasonMarkup(l)}</td>
+          <td class="text-right">${lineTotalCellMarkup(l)}</td>
+        </tr>
+      `).join('');
+    }
+  }
+
+  // Delegated click — survives re-renders
+  const tickTableBody = $('to-tbody');
+  if (tickTableBody) {
+    tickTableBody.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-tick-id]');
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.tickId);
+      // Toggle: if floater is open for this line, close it; else (re)open
+      if (floaterLineId === id && floater.classList.contains('open')) {
+        closeFloater();
+      } else {
+        closeFloater();
+        openFloaterFor(btn, id);
+      }
+    });
+
+    // Delegated input for short qty
+    tickTableBody.addEventListener('input', (e) => {
+      const inp = e.target.closest('[data-recv-id]');
+      if (!inp) return;
+      const id = parseInt(inp.dataset.recvId);
+      const l = TO_LINES.find(x => x.id === id);
+      let v = parseInt(inp.value);
+      if (isNaN(v)) v = 0;
+      v = Math.max(0, Math.min(l.qty, v));
+      l.recv = v;
+      if (v >= l.qty) l.state = 'received';
+      const row = tickTableBody.querySelector(`[data-line-id="${id}"]`);
+      if (row) {
+        row.children[7].innerHTML = reasonMarkup(l);
+        row.children[8].innerHTML = lineTotalCellMarkup(l);
+      }
+      updateTickoffTotals();
+      flashSave();
+    });
+  }
+
+  function updateTickoffTotals() {
+    const total = TO_LINES.length;
+    const received   = TO_LINES.filter(l => l.state === 'received').length;
+    const shorts     = TO_LINES.filter(l => l.state === 'short').length;
+    const damaged    = TO_LINES.filter(l => l.state === 'damaged').length;
+    const notRecv    = TO_LINES.filter(l => l.state === 'not_received').length;
+    const disc = shorts + damaged + notRecv;
+
+    const invoiceValue = TO_LINES.reduce((s, l) => s + lineTotal(l), 0);
+    const matchedValue = TO_LINES.filter(l => l.state === 'received').reduce((s, l) => s + lineTotal(l), 0);
+    const discValue = TO_LINES.reduce((s, l) => s + lineCredit(l), 0);
+
+    // Header cards
+    if ($('to-invoice-value')) $('to-invoice-value').textContent = fmt(invoiceValue);
+    if ($('to-invoice-lines')) $('to-invoice-lines').textContent = total;
+    if ($('to-matched-count')) $('to-matched-count').textContent = received;
+    if ($('to-matched-value')) $('to-matched-value').textContent = fmt(matchedValue);
+    if ($('to-disc-count')) $('to-disc-count').textContent = disc;
+    if ($('to-disc-value')) $('to-disc-value').textContent = fmt(discValue);
+    if ($('to-prog-done')) $('to-prog-done').textContent = total;
+    if ($('to-prog-total')) $('to-prog-total').textContent = total;
+    if ($('to-prog-bar')) $('to-prog-bar').style.width = '100%';
+
+    // Tab counts
+    if ($('to-tab-all')) $('to-tab-all').textContent = total;
+    if ($('to-tab-disc')) $('to-tab-disc').textContent = disc;
+
+    // Footer
+    if ($('to-f-ticked'))  $('to-f-ticked').textContent = received;
+    if ($('to-f-short'))   $('to-f-short').textContent = shorts;
+    if ($('to-f-damage'))  $('to-f-damage').textContent = damaged;
+    if ($('to-f-notrecv')) $('to-f-notrecv').textContent = notRecv;
+
+    // Finalise button — now always available (all lines have a state by default)
+    const finBtn = $('to-finalise-btn');
+    if (finBtn) {
+      finBtn.classList.remove('btn-secondary'); finBtn.classList.add('btn-green');
+      finBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg> ${disc > 0 ? `Finalise & draft ${disc} credit${disc === 1 ? '' : 's'}` : 'Finalise — all received'}`;
+    }
+  }
+
+  let autoSaveTimer = null;
+  function flashSave() {
+    const el = $('to-autosave');
+    if (!el) return;
+    el.textContent = 'Saving…';
+    el.style.color = '';
+    if (autoSaveTimer) clearTimeout(autoSaveTimer);
+    autoSaveTimer = setTimeout(() => {
+      el.textContent = 'Auto-saved just now';
+      el.style.color = 'var(--brand-green)';
+      setTimeout(() => { el.style.color = ''; }, 800);
+    }, 400);
+  }
+
+  // Tabs + filter
+  document.querySelectorAll('[data-to-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      TO_TAB = btn.dataset.toTab;
+      document.querySelectorAll('[data-to-tab]').forEach(b => b.classList.toggle('active', b === btn));
+      renderTickoff();
+    });
+  });
+  const toFilterInput = $('to-filter');
+  if (toFilterInput) {
+    toFilterInput.addEventListener('input', (e) => {
+      TO_FILTER = e.target.value.toLowerCase().trim();
+      renderTickoff();
+    });
+  }
+
+  // Initial render
+  renderTickoff();
+  updateTickoffTotals();
+
+  // ---------- Finalise drawer ----------
+  function openFinaliseDrawer() {
+    const discLines = TO_LINES.filter(l => l.state !== 'received');
+    const totalCredit = discLines.reduce((s, l) => s + lineCredit(l), 0);
+
+    $('fin-subtitle').textContent = discLines.length > 0
+      ? `${TO_INVOICE.supplier} · ${TO_INVOICE.invoiceNo} · ${discLines.length} discrepanc${discLines.length === 1 ? 'y' : 'ies'} · credit ${fmt(totalCredit)}`
+      : `${TO_INVOICE.supplier} · ${TO_INVOICE.invoiceNo} · no discrepancies — nothing to chase`;
+
+    const body = $('fin-body');
+    if (discLines.length === 0) {
+      body.innerHTML = `
+        <div class="flex items-center gap-3 p-4 rounded-lg border border-[var(--brand-green)] bg-[var(--brand-green-soft)]">
+          <div class="w-9 h-9 rounded-full bg-[var(--brand-green)] flex items-center justify-center shrink-0">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0a1a0a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg>
+          </div>
+          <div class="flex-1">
+            <div class="text-[14px] font-semibold">Everything received in full</div>
+            <div class="text-[12px] text-[var(--muted)] mt-0.5">No credit note needed. We'll mark the invoice reconciled and move it into the April statement queue.</div>
+          </div>
+        </div>
+      `;
+      $('fin-send-btn').innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg> Mark reconciled';
+    } else {
+      const rowsHtml = discLines.map(l => {
+        const cr = lineCredit(l);
+        const reason = l.state === 'short' ? `Short ${l.qty - (l.recv ?? l.qty)}`
+                    : l.state === 'damaged' ? 'Damaged'
+                    : 'Not received';
+        const invoiced = l.qty;
+        const received = l.state === 'damaged' ? `${l.qty} (damaged)`
+                      : l.state === 'not_received' ? '0'
+                      : (l.recv ?? l.qty);
+        return `<tr>
+          <td>${l.product} (SKU ${l.sku})</td>
+          <td class="tnum text-right">${invoiced}</td>
+          <td class="tnum text-right">${received}</td>
+          <td>${reason}</td>
+          <td class="text-right tnum font-medium">${fmt(cr)}</td>
+        </tr>`;
+      }).join('');
+
+      body.innerHTML = `
+        <div class="flex items-center gap-3 mb-5 text-[12px]">
+          <div class="flex gap-3">
+            <div><span class="text-[var(--muted)]">To</span> <span class="font-medium ml-1">${TO_INVOICE.creditEmail}</span></div>
+            <div><span class="text-[var(--muted)]">Subject</span> <span class="font-medium ml-1">Credit request —${TO_INVOICE.invoiceNo} — ${discLines.length} line${discLines.length === 1 ? '' : 's'} — ${fmt(totalCredit)}</span></div>
+          </div>
+        </div>
+
+        <div class="card card-raised p-4 text-[13px] leading-relaxed space-y-3">
+          <div>Hi ${TO_INVOICE.repFirst},</div>
+          <div>We've checked off ${TO_INVOICE.invoiceNo} (${TO_INVOICE.box}) against the delivery and found ${discLines.length} line${discLines.length === 1 ? '' : 's'} we need to query. Could you raise a credit note for the below?</div>
+          <div class="card !rounded-lg border border-[var(--border)] overflow-hidden mt-2">
+            <table class="data" style="font-size: 12px;">
+              <thead><tr><th>Product</th><th class="text-right">Invoiced</th><th class="text-right">Received</th><th>Reason</th><th class="text-right">Credit</th></tr></thead>
+              <tbody>${rowsHtml}</tbody>
+              <tfoot>
+                <tr style="background: var(--surface-raised);">
+                  <td colspan="4" class="text-right font-medium">Total credit requested</td>
+                  <td class="text-right tnum font-semibold">${fmt(totalCredit)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          ${discLines.some(l => l.state === 'damaged') ? '<div>Photos attached for the damaged stock.</div>' : ''}
+          <div>Let me know if you need anything else.</div>
+          <div>Thanks,<br/>Jethro</div>
+        </div>
+
+        <div class="mt-4 flex items-center gap-2 text-[12px] text-[var(--muted)]">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          <span>On send, we queue for tracking and mark these lines as "credit requested" on the April statement.</span>
+        </div>
+      `;
+      $('fin-send-btn').innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg> Send to ${TO_INVOICE.repFirst}`;
+    }
+
+    $('fin-foot-text').textContent = discLines.length > 0
+      ? `Credit chase will be tracked on the Credit Notes page.`
+      : `We'll mark this invoice as fully reconciled.`;
+    $('finalise-modal').classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeFinaliseDrawer() {
+    $('finalise-modal').classList.remove('open');
+    document.body.style.overflow = '';
+  }
+
+  function sendFinalise() {
+    const discLines = TO_LINES.filter(l => l.state !== 'received');
+    if (discLines.length > 0) {
+      // Open Outlook draft
+      openOutlookDraft({
+        to: TO_INVOICE.creditEmail,
+        cc: 'karen.mitchell@aah.co.uk',
+        supplier: TO_INVOICE.supplier,
+        supplierShort: TO_INVOICE.supplierKey,
+        repFirst: TO_INVOICE.repFirst,
+        invoiceNo: TO_INVOICE.invoiceNo,
+        box: TO_INVOICE.box,
+        lines: discLines.map(l => ({
+          product: l.product,
+          sku: l.sku,
+          invoiced: l.qty,
+          received: l.state === 'damaged' ? l.qty : l.state === 'not_received' ? 0 : (l.recv ?? l.qty),
+          reason: l.state === 'short' ? 'Short' : l.state === 'damaged' ? 'Damaged' : 'Not received',
+          credit: lineCredit(l),
+        })),
+      });
+    }
+    closeFinaliseDrawer();
+    const el = $('to-autosave');
+    if (el) { el.textContent = discLines.length > 0 ? 'Opened in Outlook — review and send' : 'Invoice reconciled'; el.style.color = 'var(--brand-green)'; }
+    setTimeout(() => showPage('credits'), 600);
+  }
+
+  // ---------- Outlook mailto builder ----------
+  function openOutlookDraft(opts) {
+    // Build a plain-text, mailto-safe body
+    const totalCredit = opts.lines.reduce((s, l) => s + l.credit, 0);
+    const subject = `Credit request —${opts.invoiceNo} — ${opts.lines.length} line${opts.lines.length === 1 ? '' : 's'} — £${totalCredit.toFixed(2)}`;
+
+    // Column-aligned plain text table (monospace email clients render this cleanly)
+    const tableHeader = padRight('Product', 46) + padRight('Invoiced', 10) + padRight('Received', 10) + padRight('Reason', 14) + 'Credit';
+    const tableDivider = '-'.repeat(86);
+    const tableRows = opts.lines.map(l => (
+      padRight(truncate(l.product + ' (' + l.sku + ')', 45), 46) +
+      padRight(String(l.invoiced), 10) +
+      padRight(String(l.received), 10) +
+      padRight(l.reason, 14) +
+      '£' + l.credit.toFixed(2)
+    )).join('\n');
+    const totalRow = padRight('Total credit requested', 80) + '£' + totalCredit.toFixed(2);
+
+    const hasDamage = opts.lines.some(l => l.reason === 'Damaged');
+
+    const bodyLines = [
+      `Hi ${opts.repFirst || 'team'},`,
+      '',
+      `We've checked off ${opts.invoiceNo} (${opts.box}) against the delivery and found ${opts.lines.length} line${opts.lines.length === 1 ? '' : 's'} we need to query. Could you raise a credit note for the below?`,
+      '',
+      tableHeader,
+      tableDivider,
+      tableRows,
+      tableDivider,
+      totalRow,
+      '',
+      hasDamage ? 'Photos for the damaged stock to follow.' : '',
+      'Let me know if you need anything else.',
+      '',
+      'Thanks,',
+      'Jethro',
+    ].filter(Boolean);
+
+    const body = bodyLines.join('\r\n');
+    const url = `mailto:${opts.to}` +
+      `?subject=${encodeURIComponent(subject)}` +
+      (opts.cc ? `&cc=${encodeURIComponent(opts.cc)}` : '') +
+      `&body=${encodeURIComponent(body)}`;
+
+    window.location.href = url;
+  }
+
+  function padRight(s, n) {
+    if (s.length >= n) return s + ' ';
+    return s + ' '.repeat(n - s.length);
+  }
+  function truncate(s, n) {
+    return s.length <= n ? s : s.slice(0, n - 1) + '…';
+  }
+
+  // Credit Notes page — the static "AAH batch" preview pane uses these values
+  function sendAAHBatchDraft() {
+    openOutlookDraft({
+      to: 'credits@aah.co.uk',
+      cc: 'karen.mitchell@aah.co.uk',
+      supplier: 'AAH Pharmaceuticals',
+      supplierShort: 'AAH',
+      repFirst: 'Karen',
+      invoiceNo: 'INV-44821A',
+      box: 'Box 1 of 3',
+      lines: [
+        { product: 'Metformin 500mg MR 56',  sku: '3322194', invoiced: 8, received: 6, reason: 'Short',   credit: 8.20 },
+        { product: 'Ramipril 5mg caps 28',   sku: '4781223', invoiced: 4, received: 4, reason: 'Damaged', credit: 8.20 },
+      ],
+    });
+  }
+
+  // "Send all drafts" — opens a sequence of Outlook drafts, one per supplier batch
+  function sendAllDrafts() {
+    const batches = [
+      {
+        to: 'credits@aah.co.uk', cc: 'karen.mitchell@aah.co.uk',
+        supplier: 'AAH Pharmaceuticals', supplierShort: 'AAH', repFirst: 'Karen',
+        invoiceNo: 'INV-44821A', box: 'Box 1 of 3',
+        lines: [
+          { product: 'Metformin 500mg MR 56', sku: '3322194', invoiced: 8, received: 6, reason: 'Short',   credit: 8.20 },
+          { product: 'Ramipril 5mg caps 28',  sku: '4781223', invoiced: 4, received: 4, reason: 'Damaged', credit: 8.20 },
+        ],
+      },
+      {
+        to: 'credits.uk@alliance-healthcare.co.uk', cc: 'tom.rees@alliance-healthcare.co.uk',
+        supplier: 'Alliance Healthcare', supplierShort: 'Alliance', repFirst: 'Tom',
+        invoiceNo: 'AH-992013', box: 'Box 1 of 2',
+        lines: [
+          { product: 'Co-codamol 30/500 100',   sku: 'AL-1122', invoiced: 10, received: 5, reason: 'Short',         credit: 42.50 },
+          { product: 'Sertraline 50mg tabs 28', sku: 'AL-9912', invoiced: 10, received: 0, reason: 'Not received',  credit: 14.40 },
+          { product: 'Omeprazole 20mg caps 28', sku: 'AL-2847', invoiced: 5,  received: 3, reason: 'Wrong product', credit: 3.60 },
+        ],
+      },
+    ];
+
+    if (!confirm(`Open ${batches.length} draft${batches.length === 1 ? '' : 's'} in Outlook?\n\n` +
+                 batches.map(b => `• ${b.supplier} — ${b.lines.length} lines`).join('\n'))) return;
+
+    // Open the first immediately, then queue subsequent with a small delay
+    // (mailto: handlers can drop rapid-fire calls, so we stagger)
+    batches.forEach((b, i) => {
+      setTimeout(() => openOutlookDraft(b), i * 900);
+    });
+  }
+
+  // Close finalise on Esc / backdrop
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && $('finalise-modal').classList.contains('open')) closeFinaliseDrawer();
+  });
+  $('finalise-modal').addEventListener('click', (e) => {
+    if (e.target === $('finalise-modal')) closeFinaliseDrawer();
+  });
+
+  // Close on Esc / backdrop
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && $('scan-modal').classList.contains('open')) closeScanModal();
+  });
+  $('scan-modal').addEventListener('click', (e) => {
+    if (e.target === $('scan-modal')) closeScanModal();
+  });
+</script>
+
+</body>
+</html>
