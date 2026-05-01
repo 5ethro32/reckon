@@ -1,0 +1,20 @@
+{
+  "name": "@reckon/parser",
+  "version": "0.1.0",
+  "description": "PDF invoice and statement parsers for UK pharmacy wholesalers",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "parse": "tsx src/cli.ts",
+    "test": "tsx src/test.ts"
+  },
+  "dependencies": {
+    "pdf-parse": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pdf-parse": "^1.1.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.0"
+  }
+}

@@ -15,6 +15,9 @@ desktop.ini
 
 # Future Next.js scaffold (v0.2)
 node_modules/
+parser/node_modules/
+parser/dist/
+parser/test-pdfs/
 .next/
 out/
 .env
