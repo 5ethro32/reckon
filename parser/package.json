@@ -21,10 +21,12 @@
     "test": "tsx src/test.ts"
   },
   "dependencies": {
-    "@napi-rs/canvas": "^0.1.100",
     "pdf-parse": "^1.1.1",
     "pdfjs-dist": "^5.7.0",
     "tesseract.js": "^7.0.0"
+  },
+  "optionalDependencies": {
+    "@napi-rs/canvas": "^0.1.100"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
