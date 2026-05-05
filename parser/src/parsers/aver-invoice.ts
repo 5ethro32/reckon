@@ -14,7 +14,7 @@
  * No VAT% column — VAT is always 20% on Aver (reflected in the totals block).
  */
 
-import type { ParsedInvoice, InvoiceLine } from '../types/index.js';
+import type { ParsedInvoice, InvoiceLine } from '../types/index';
 
 function toIsoDate(input: string): string {
   // Aver uses YYYY-MM-DD already.

@@ -1,0 +1,678 @@
+/**
+ * Dashboard — the morning briefing.
+ *
+ * Surfaces the operational state of the pharmacy in a single view:
+ *   1. KPI strip (deliveries today, reconciled, credit queue, unchased >14d)
+ *   2. Today's deliveries (top 6, status badges)
+ *   3. Credits waiting on suppliers (oldest first)
+ *   4. Saving this month (sum of resolved credit_requests)
+ *
+ * Every metric is derived from real columns in the database — no fictional
+ * percentages, no placeholder fields. If a section has no data, it gets a
+ * concise empty state rather than fabricating "0%".
+ *
+ * All four queries fire in parallel via Promise.all so total render time is
+ * bounded by the slowest single query, not the sum of all four.
+ */
+
+import Link from 'next/link';
+import { createClient } from '@/lib/supabase/server';
+
+const supplierLabels: Record<string, string> = {
+  aah: 'AAH', aver: 'Aver', phoenix: 'Phoenix',
+  alliance: 'Alliance', ethigen: 'Ethigen', numark: 'Numark',
+};
+
+// ────────────────────────────────────────────────────────────────────
+// Date helpers — UK timezone is implicit (Vercel runs UTC, but for our
+// pharmacy users a "today" boundary at midnight UTC is close enough to
+// midnight London for the purposes of the dashboard).
+// ────────────────────────────────────────────────────────────────────
+
+function startOfTodayISO(): string {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+
+function startOfMonthISO(): string {
+  const d = new Date();
+  d.setDate(1);
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+
+function fourteenDaysAgoISO(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 14);
+  return d.toISOString();
+}
+
+function daysAgo(iso: string | null): number | null {
+  if (!iso) return null;
+  const ms = Date.now() - new Date(iso).getTime();
+  return Math.floor(ms / (1000 * 60 * 60 * 24));
+}
+
+function shortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Page
+// ────────────────────────────────────────────────────────────────────
+
+export default async function DashboardPage() {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  const firstName = (user?.email ?? '').split('@')[0]!.split('.')[0]!;
+  const greetName = firstName.charAt(0).toUpperCase() + firstName.slice(1);
+
+  // Fire all four queries in parallel — no waterfalls.
+  const [
+    invoicesRes,
+    flaggedLinesRes,
+    creditRequestsRes,
+    resolvedCreditsRes,
+  ] = await Promise.all([
+    // 1) All open invoices with their lines (so we can compute reconciled
+    // status from line flags). Sorted desc so the preview shows newest first.
+    supabase
+      .from('invoices')
+      .select(`
+        id, supplier, invoice_number, invoice_date, gross_total, created_at,
+        invoice_lines ( flags )
+      `)
+      .is('deleted_at', null)
+      .order('invoice_date', { ascending: false }),
+
+    // 2) Lines flagged but NOT yet on a credit request — the chase backlog.
+    supabase
+      .from('invoice_lines')
+      .select('id, gross, flags, invoices!inner(deleted_at)')
+      .is('credit_request_id', null)
+      .not('flags', 'eq', '{}'),
+
+    // 3) All open credit requests — used for unchased >14d KPI + waiting list.
+    supabase
+      .from('credit_requests')
+      .select('id, supplier, status, total_amount, sent_at, email_to, email_subject, email_body')
+      .in('status', ['sent', 'overdue'])
+      .order('sent_at', { ascending: true, nullsFirst: false }),
+
+    // 4) Resolved credit requests in current calendar month — money recovered.
+    supabase
+      .from('credit_requests')
+      .select('total_amount')
+      .eq('status', 'resolved')
+      .gte('resolved_at', startOfMonthISO()),
+  ]);
+
+  const errors = [
+    invoicesRes.error,
+    flaggedLinesRes.error,
+    creditRequestsRes.error,
+    resolvedCreditsRes.error,
+  ].filter(Boolean);
+
+  if (errors.length > 0) {
+    return <DashboardError messages={errors.map(e => e!.message)} />;
+  }
+
+  const invoices = (invoicesRes.data ?? []) as Array<{
+    id: string; supplier: string; invoice_number: string; invoice_date: string;
+    gross_total: number | string; created_at: string;
+    invoice_lines: Array<{ flags: string[] }>;
+  }>;
+
+  const flaggedLines = ((flaggedLinesRes.data ?? []) as unknown as Array<{
+    id: string; gross: number | string; flags: string[];
+    invoices: { deleted_at: string | null } | { deleted_at: string | null }[];
+  }>).filter(l => {
+    const inv = Array.isArray(l.invoices) ? l.invoices[0] : l.invoices;
+    return inv && !inv.deleted_at;
+  });
+
+  const creditRequests = (creditRequestsRes.data ?? []) as Array<{
+    id: string; supplier: string; status: string; total_amount: number | string;
+    sent_at: string | null;
+    email_to: string | null; email_subject: string | null; email_body: string | null;
+  }>;
+
+  const resolvedThisMonth = (resolvedCreditsRes.data ?? []) as Array<{
+    total_amount: number | string;
+  }>;
+
+  // ─── KPI 1: Deliveries today ─────────────────────────────────────
+  const todayStart = startOfTodayISO();
+  const invoicesToday = invoices.filter(i => i.created_at >= todayStart);
+  const suppliersToday = new Set(invoicesToday.map(i => i.supplier)).size;
+
+  // ─── KPI 2: Reconciled — invoices where every line has empty flags ──
+  const reconciledCount = invoices.filter(inv => {
+    if (inv.invoice_lines.length === 0) return false;
+    return inv.invoice_lines.every(l => (l.flags ?? []).length === 0);
+  }).length;
+  const reconciledPct = invoices.length === 0
+    ? 0
+    : Math.round((reconciledCount / invoices.length) * 100);
+
+  // ─── KPI 3: Credit queue — flagged lines not yet on a credit request ──
+  const creditQueueCount = flaggedLines.length;
+  const creditQueueGross = flaggedLines.reduce(
+    (sum, l) => sum + Number(l.gross),
+    0,
+  );
+
+  // ─── KPI 4: Credits unchased >14d ─────────────────────────────────
+  const fourteen = fourteenDaysAgoISO();
+  const unchased = creditRequests.filter(
+    r => r.sent_at !== null && r.sent_at < fourteen,
+  );
+  const unchasedTotal = unchased.reduce(
+    (sum, r) => sum + Number(r.total_amount),
+    0,
+  );
+  const unchasedOldestSentAt = unchased.length > 0
+    ? unchased
+        .map(r => r.sent_at!)
+        .reduce((oldest, x) => (x < oldest ? x : oldest))
+    : null;
+
+  // ─── Saving this month ───────────────────────────────────────────
+  const savedThisMonth = resolvedThisMonth.reduce(
+    (sum, r) => sum + Number(r.total_amount),
+    0,
+  );
+
+  // ─── Today's deliveries preview ──────────────────────────────────
+  const todaysDeliveriesPreview = invoicesToday.length > 0
+    ? invoicesToday.slice(0, 6)
+    : invoices.slice(0, 6); // fallback: most recent 6 if nothing today
+
+  // ─── Credits waiting on suppliers ────────────────────────────────
+  const waitingOnSuppliers = creditRequests
+    .filter(r => r.sent_at !== null) // skip drafts
+    .slice(0, 5);
+
+  // ─── Total flagged lines today (for greeting line) ───────────────
+  const flaggedTotal = flaggedLines.length;
+
+  const isFreshAccount = invoices.length === 0;
+
+  return (
+    <div>
+      {/* ─── Greeting + quick-add bar ──────────────────────────── */}
+      <header
+        style={{
+          display: 'flex',
+          alignItems: 'flex-end',
+          justifyContent: 'space-between',
+          gap: '1.5rem',
+          marginBottom: '1.75rem',
+          flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <p
+            className="section-label"
+            style={{ marginBottom: '0.5rem' }}
+          >
+            {new Date().toLocaleDateString('en-GB', {
+              weekday: 'long',
+              day: 'numeric',
+              month: 'long',
+            })}
+          </p>
+          <h1
+            style={{
+              fontSize: '26px',
+              fontWeight: 600,
+              letterSpacing: '-0.02em',
+              margin: 0,
+              marginBottom: '0.375rem',
+            }}
+          >
+            Good morning, {greetName}.
+          </h1>
+          <p style={{ fontSize: '13px', color: 'var(--muted)', margin: 0 }}>
+            {isFreshAccount ? (
+              <>No invoices yet. <Link href="/upload" style={{ textDecoration: 'underline', textUnderlineOffset: '3px' }}>Upload your first PDF</Link> to get started.</>
+            ) : (
+              <>
+                {invoicesToday.length > 0
+                  ? `${invoicesToday.length} ${pluralize(invoicesToday.length, 'invoice')} uploaded today`
+                  : 'Nothing uploaded today'}
+                {flaggedTotal > 0 && <> · <strong style={{ color: 'var(--foreground)', fontWeight: 600 }}>{flaggedTotal} {pluralize(flaggedTotal, 'line')}</strong> flagged for review</>}
+              </>
+            )}
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
+          <Link
+            href="/upload?type=invoice"
+            className="btn btn-secondary"
+            style={{ gap: '0.375rem' }}
+          >
+            <PlusIcon /> Invoice
+          </Link>
+          <Link
+            href="/upload?type=statement"
+            className="btn btn-secondary"
+            style={{ gap: '0.375rem' }}
+          >
+            <PlusIcon /> Statement
+          </Link>
+        </div>
+      </header>
+
+      {/* ─── KPI Strip ──────────────────────────────────────────── */}
+      <section
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4, 1fr)',
+          gap: '0.875rem',
+          marginBottom: '1.5rem',
+        }}
+      >
+        <Kpi
+          label="Deliveries today"
+          value={String(invoicesToday.length)}
+          sub={
+            invoicesToday.length === 0
+              ? 'none'
+              : `from ${suppliersToday} ${pluralize(suppliersToday, 'supplier')}`
+          }
+        />
+        <Kpi
+          label="Reconciled"
+          value={`${reconciledCount} of ${invoices.length}`}
+          sub={invoices.length === 0 ? 'no invoices yet' : `${reconciledPct}%`}
+        />
+        <Kpi
+          label="Credit queue"
+          value={String(creditQueueCount)}
+          sub={
+            creditQueueCount === 0
+              ? 'nothing flagged'
+              : `£${creditQueueGross.toFixed(2)} to chase`
+          }
+        />
+        <Kpi
+          label="Unchased > 14d"
+          value={String(unchased.length)}
+          sub={
+            unchased.length === 0
+              ? 'all current'
+              : `£${unchasedTotal.toFixed(2)} · oldest ${shortDate(unchasedOldestSentAt!)}`
+          }
+          tone={unchased.length > 0 ? 'critical' : 'neutral'}
+        />
+      </section>
+
+      {/* ─── Two-column body: deliveries (left) + waiting/saved (right) ─ */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1.6fr 1fr',
+          gap: '1.25rem',
+        }}
+      >
+        {/* ─── Today's deliveries ──────────────────────────────── */}
+        <section className="card" style={{ overflow: 'hidden' }}>
+          <div
+            style={{
+              padding: '1.125rem 1.25rem 0.875rem',
+              display: 'flex',
+              alignItems: 'flex-end',
+              justifyContent: 'space-between',
+              gap: '1rem',
+            }}
+          >
+            <div>
+              <h2 style={{ fontSize: '15px', fontWeight: 600, margin: 0, marginBottom: '0.25rem' }}>
+                {invoicesToday.length > 0 ? "Today's deliveries" : 'Recent deliveries'}
+              </h2>
+              <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0 }}>
+                {todaysDeliveriesPreview.length === 0
+                  ? 'No invoices yet.'
+                  : 'Tap a row to start reconciling.'}
+              </p>
+            </div>
+            {invoices.length > 0 && (
+              <Link href="/invoices" style={{ fontSize: '12px', color: 'var(--muted)' }}>
+                View all →
+              </Link>
+            )}
+          </div>
+
+          {todaysDeliveriesPreview.length === 0 ? (
+            <DeliveriesEmpty />
+          ) : (
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Supplier</th>
+                  <th>Invoice #</th>
+                  <th className="num">Total</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {todaysDeliveriesPreview.map(inv => {
+                  const lineCount = inv.invoice_lines.length;
+                  const fullCount = inv.invoice_lines.filter(
+                    l => (l.flags ?? []).length === 0,
+                  ).length;
+                  const exceptionCount = lineCount - fullCount;
+                  const allFull = lineCount > 0 && exceptionCount === 0;
+                  const label = lineCount === 0
+                    ? 'Pending'
+                    : allFull
+                    ? 'All received'
+                    : `${exceptionCount} ${pluralize(exceptionCount, 'flag')}`;
+                  const badgeClass = lineCount === 0
+                    ? 'badge badge-neutral'
+                    : allFull
+                    ? 'badge badge-success'
+                    : 'badge badge-warning';
+                  const href = `/invoices/${inv.id}`;
+                  return (
+                    <tr key={inv.id} style={{ cursor: 'pointer' }}>
+                      <td>
+                        <Link href={href} className="row-link" style={{ color: 'var(--muted)' }}>
+                          {supplierLabels[inv.supplier] ?? inv.supplier}
+                        </Link>
+                      </td>
+                      <td style={{ fontWeight: 500 }}>
+                        <Link href={href} className="row-link">
+                          {inv.invoice_number}
+                        </Link>
+                      </td>
+                      <td className="num" style={{ fontWeight: 500 }}>
+                        £{Number(inv.gross_total).toFixed(2)}
+                      </td>
+                      <td>
+                        <span className={badgeClass}>{label}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </section>
+
+        {/* ─── Right column: saved + waiting ───────────────────── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {/* Saving this month */}
+          <section
+            className="card card-padded"
+            style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}
+          >
+            <p className="section-label" style={{ margin: 0 }}>
+              Recovered this month
+            </p>
+            <p
+              style={{
+                fontSize: '28px',
+                fontWeight: 600,
+                letterSpacing: '-0.02em',
+                margin: 0,
+                fontVariantNumeric: 'tabular-nums',
+                color: savedThisMonth > 0 ? 'var(--brand)' : 'var(--foreground)',
+              }}
+            >
+              £{savedThisMonth.toFixed(2)}
+            </p>
+            <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0 }}>
+              {savedThisMonth === 0
+                ? 'No credits resolved yet this month.'
+                : `from ${resolvedThisMonth.length} ${pluralize(resolvedThisMonth.length, 'credit')} resolved`}
+            </p>
+          </section>
+
+          {/* Credits waiting on suppliers */}
+          <section className="card" style={{ overflow: 'hidden' }}>
+            <div style={{ padding: '1.125rem 1.25rem 0.5rem' }}>
+              <h2 style={{ fontSize: '15px', fontWeight: 600, margin: 0, marginBottom: '0.25rem' }}>
+                Waiting on suppliers
+              </h2>
+              <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0 }}>
+                Oldest first.
+              </p>
+            </div>
+
+            {waitingOnSuppliers.length === 0 ? (
+              <div style={{ padding: '0.5rem 1.25rem 1.25rem' }}>
+                <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0 }}>
+                  Nothing pending.
+                </p>
+              </div>
+            ) : (
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                {waitingOnSuppliers.map((r, i) => {
+                  const days = daysAgo(r.sent_at);
+                  const isStale = days !== null && days > 14;
+                  return (
+                    <li
+                      key={r.id}
+                      style={{
+                        padding: '0.75rem 1.25rem',
+                        borderTop: i === 0 ? 'none' : '1px solid var(--border-subtle)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '0.75rem',
+                      }}
+                    >
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            marginBottom: '0.125rem',
+                          }}
+                        >
+                          <span style={{ fontSize: '13px', fontWeight: 500 }}>
+                            {supplierLabels[r.supplier] ?? r.supplier}
+                          </span>
+                          <span
+                            className={isStale ? 'badge badge-critical' : 'badge badge-neutral'}
+                            style={{ fontSize: '10px' }}
+                          >
+                            {days === null
+                              ? 'unsent'
+                              : days === 0
+                              ? 'today'
+                              : `${days}d`}
+                          </span>
+                        </div>
+                        <p
+                          style={{
+                            fontSize: '11px',
+                            color: 'var(--muted)',
+                            margin: 0,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {r.email_subject ?? 'Credit request'}
+                        </p>
+                      </div>
+                      <span
+                        className="num"
+                        style={{
+                          fontSize: '13px',
+                          fontWeight: 500,
+                          fontVariantNumeric: 'tabular-nums',
+                        }}
+                      >
+                        £{Number(r.total_amount).toFixed(2)}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            {creditRequests.length > 0 && (
+              <div
+                style={{
+                  padding: '0.625rem 1.25rem',
+                  borderTop: '1px solid var(--border-subtle)',
+                  background: 'var(--surface-raised)',
+                }}
+              >
+                <Link
+                  href="/credits"
+                  style={{ fontSize: '12px', color: 'var(--muted)' }}
+                >
+                  View all credits →
+                </Link>
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Helpers
+// ────────────────────────────────────────────────────────────────────
+
+function pluralize(n: number, word: string): string {
+  return n === 1 ? word : `${word}s`;
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function Kpi({
+  label,
+  value,
+  sub,
+  tone = 'neutral',
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  tone?: 'neutral' | 'critical';
+}) {
+  return (
+    <div
+      className="card"
+      style={{
+        padding: '1rem 1.125rem',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.375rem',
+        minHeight: '5.25rem',
+      }}
+    >
+      <p
+        className="section-label"
+        style={{ margin: 0, fontSize: '10px', letterSpacing: '0.06em' }}
+      >
+        {label}
+      </p>
+      <p
+        style={{
+          fontSize: '24px',
+          fontWeight: 600,
+          letterSpacing: '-0.02em',
+          margin: 0,
+          fontVariantNumeric: 'tabular-nums',
+          color: tone === 'critical'
+            ? 'var(--status-critical-text)'
+            : 'var(--foreground)',
+          lineHeight: 1.1,
+        }}
+      >
+        {value}
+      </p>
+      <p
+        style={{
+          fontSize: '11px',
+          color: 'var(--muted)',
+          margin: 0,
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      >
+        {sub}
+      </p>
+    </div>
+  );
+}
+
+function DeliveriesEmpty() {
+  return (
+    <div
+      style={{
+        padding: '2.5rem 1.5rem',
+        textAlign: 'center',
+        borderTop: '1px solid var(--border-subtle)',
+      }}
+    >
+      <p style={{ fontSize: '13px', color: 'var(--muted)', margin: 0, marginBottom: '1rem' }}>
+        No deliveries uploaded yet.
+      </p>
+      <Link href="/upload" className="btn btn-primary btn-sm">
+        Upload PDFs
+      </Link>
+    </div>
+  );
+}
+
+function DashboardError({ messages }: { messages: string[] }) {
+  return (
+    <div>
+      <h1 className="page-title" style={{ marginBottom: '1rem' }}>
+        Dashboard
+      </h1>
+      <div
+        style={{
+          padding: '1rem 1.25rem',
+          borderRadius: '0.5rem',
+          background: 'var(--status-critical-bg)',
+          border: '1px solid var(--status-critical-border)',
+          color: 'var(--status-critical-text)',
+        }}
+      >
+        <p style={{ fontSize: '13px', fontWeight: 500, margin: 0, marginBottom: '0.25rem' }}>
+          Couldn&apos;t load dashboard
+        </p>
+        {messages.map((m, i) => (
+          <p key={i} style={{ fontSize: '12px', margin: 0 }}>
+            {m}
+          </p>
+        ))}
+        <p style={{ fontSize: '12px', margin: 0, marginTop: '0.5rem' }}>
+          If this mentions <code>credit_requests</code> or <code>damage_disposition</code>,
+          apply migrations 0002 and 0003 in the Supabase SQL editor.
+        </p>
+      </div>
+    </div>
+  );
+}

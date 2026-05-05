@@ -13,7 +13,7 @@
  * (due date + 3 amounts) and walk backwards.
  */
 
-import type { ParsedStatement, StatementRow } from '../types/index.js';
+import type { ParsedStatement, StatementRow } from '../types/index';
 
 function toIsoDate(input: string): string {
   const ddmmyyyy = input.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);

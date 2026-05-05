@@ -12,8 +12,8 @@
 
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parsePdf } from './index.js';
-import type { ParsedInvoice, ParsedStatement } from './types/index.js';
+import { parsePdf } from './index';
+import type { ParsedInvoice, ParsedStatement } from './types/index';
 
 const TEST_DIR = join(process.cwd(), 'test-pdfs');
 

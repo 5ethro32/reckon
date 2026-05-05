@@ -1,0 +1,169 @@
+/**
+ * Deliveries page — list of uploaded invoices.
+ *
+ * Status badge is computed from line states (full vs exception count) so it
+ * stays in sync with tick-off interactions without needing a separate
+ * invoice-level status update.
+ */
+
+import Link from 'next/link';
+import { createClient } from '@/lib/supabase/server';
+
+const supplierLabels: Record<string, string> = {
+  aah: 'AAH', aver: 'Aver', phoenix: 'Phoenix',
+  alliance: 'Alliance', ethigen: 'Ethigen', numark: 'Numark',
+};
+
+type InvoiceWithLines = {
+  id: string;
+  supplier: string;
+  invoice_number: string;
+  invoice_date: string;
+  gross_total: number;
+  totals_match: boolean;
+  invoice_lines: { flags: string[] }[];
+};
+
+export default async function InvoicesPage() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('invoices')
+    .select(`
+      id, supplier, invoice_number, invoice_date, gross_total, totals_match,
+      invoice_lines ( flags )
+    `)
+    .is('deleted_at', null)
+    .order('invoice_date', { ascending: false });
+
+  if (error) return <ErrorState message={error.message} />;
+  const invoices = (data ?? []) as InvoiceWithLines[];
+  if (invoices.length === 0) return <EmptyState />;
+
+  return (
+    <div>
+      <div className="page-header">
+        <div>
+          <h1 className="page-header-title">Deliveries</h1>
+          <p className="page-header-subtitle">
+            {invoices.length} invoice{invoices.length === 1 ? '' : 's'}
+          </p>
+        </div>
+        <Link href="/upload" className="btn btn-secondary">Upload PDFs</Link>
+      </div>
+
+      <div className="card" style={{ overflow: 'hidden' }}>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Supplier</th>
+              <th>Invoice #</th>
+              <th>Date</th>
+              <th className="num">Total</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {invoices.map(inv => {
+              const lineCount = inv.invoice_lines.length;
+              const fullCount = inv.invoice_lines.filter(l => l.flags.length === 0).length;
+              const exceptionCount = lineCount - fullCount;
+              const allFull = lineCount > 0 && exceptionCount === 0;
+              const label = lineCount === 0
+                ? 'Pending'
+                : allFull
+                ? 'All received'
+                : `${fullCount}/${lineCount} received`;
+              const badgeClass = lineCount === 0
+                ? 'badge badge-neutral'
+                : allFull
+                ? 'badge badge-success'
+                : 'badge badge-warning';
+              const href = `/invoices/${inv.id}`;
+              return (
+                <tr key={inv.id} style={{ cursor: 'pointer' }}>
+                  <td>
+                    <Link href={href} className="row-link" style={{ color: 'var(--muted)' }}>
+                      {supplierLabels[inv.supplier] ?? inv.supplier}
+                    </Link>
+                  </td>
+                  <td style={{ fontWeight: 500 }}>
+                    <Link href={href} className="row-link">
+                      {inv.invoice_number}
+                    </Link>
+                  </td>
+                  <td style={{ color: 'var(--muted)' }}>
+                    <Link href={href} className="row-link" style={{ color: 'inherit' }}>
+                      {new Date(inv.invoice_date).toLocaleDateString('en-GB')}
+                    </Link>
+                  </td>
+                  <td className="num" style={{ fontWeight: 500 }}>
+                    £{Number(inv.gross_total).toFixed(2)}
+                  </td>
+                  <td>
+                    <span className={badgeClass}>{label}</span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div>
+      <div className="page-header">
+        <div>
+          <h1 className="page-header-title">Deliveries</h1>
+          <p className="page-header-subtitle">No invoices uploaded yet</p>
+        </div>
+      </div>
+      <div style={{
+        textAlign: 'center',
+        padding: '4rem 1.5rem',
+        border: '1.5px dashed var(--border-subtle)',
+        borderRadius: '0.75rem',
+        background: 'var(--card-bg)',
+      }}>
+        <svg
+          width="32"
+          height="32"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="var(--muted-light)"
+          strokeWidth="1.5"
+          style={{ marginBottom: '0.875rem' }}
+          aria-hidden
+        >
+          <path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M14 3v6h6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <h2 style={{ fontSize: '15px', fontWeight: 600, margin: 0, marginBottom: '0.375rem' }}>
+          No deliveries yet
+        </h2>
+        <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0, marginBottom: '1.5rem' }}>
+          Upload your first wholesaler invoice to get started.
+        </p>
+        <Link href="/upload" className="btn btn-primary">Upload PDFs</Link>
+      </div>
+    </div>
+  );
+}
+
+function ErrorState({ message }: { message: string }) {
+  return (
+    <div style={{
+      padding: '1rem 1.25rem',
+      borderRadius: '0.5rem',
+      background: 'var(--status-critical-bg)',
+      border: '1px solid var(--status-critical-border)',
+      color: 'var(--status-critical-text)',
+    }}>
+      <p style={{ fontSize: '13px', fontWeight: 500, margin: 0 }}>Something went wrong</p>
+      <p style={{ fontSize: '12px', margin: 0, marginTop: '0.25rem' }}>{message}</p>
+    </div>
+  );
+}

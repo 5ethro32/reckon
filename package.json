@@ -1,0 +1,25 @@
+{
+  "name": "reckon",
+  "version": "0.2.0",
+  "description": "Invoice and statement reconciliation for UK pharmacy wholesalers",
+  "private": true,
+  "workspaces": [
+    "parser",
+    "app"
+  ],
+  "scripts": {
+    "test:parser": "npm test --workspace parser",
+    "dev": "npm run dev --workspace app",
+    "build": "npm run build --workspace app",
+    "start": "npm run start --workspace app",
+    "grant": "tsx scripts/grant-membership.ts"
+  },
+  "devDependencies": {
+    "@supabase/supabase-js": "^2.46.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "@napi-rs/canvas-win32-arm64-msvc": "^1.0.0"
+  }
+}

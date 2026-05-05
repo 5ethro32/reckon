@@ -7,7 +7,7 @@
  * and the caller falls back to asking the human.
  */
 
-import type { DetectionResult, SupplierKey, DocumentKind } from './types/index.js';
+import type { DetectionResult, SupplierKey, DocumentKind } from './types/index';
 
 interface Signal {
   /** Pattern to match in the document text. */
@@ -74,11 +74,18 @@ function detectKind(text: string): { kind: DocumentKind; signals: string[] } {
   let statementScore = 0;
   let creditScore = 0;
 
-  // Statement signals
+  // Statement signals — multiple supplier formats
   if (/Statement of Account/i.test(text))         { statementScore += 0.6; signals.push('"Statement of Account" header'); }
-  if (/Statement Date:/i.test(text))              { statementScore += 0.3; signals.push('Statement Date label'); }
+  if (/Statement Date[:\s\n]/i.test(text))        { statementScore += 0.5; signals.push('Statement Date label'); }
   if (/REMITTANCE DETAILS/i.test(text))           { statementScore += 0.2; signals.push('Remittance section'); }
   if (/Due For Payment:/i.test(text))             { statementScore += 0.2; signals.push('Due For Payment header'); }
+  // Aver statement: column header + ageing buckets
+  if (/AllocationDateTypeReference/i.test(text))  { statementScore += 0.5; signals.push('Aver statement column header'); }
+  if (/1 month\s*2 months\s*3 months/i.test(text)) { statementScore += 0.4; signals.push('ageing buckets (1/2/3 months)'); }
+  if (/Current Grand Total/i.test(text))          { statementScore += 0.3; signals.push('Current Grand Total label'); }
+  // Many "Credit Note" or "CRED" rows = statement, not a single credit note doc
+  const credMentions = (text.match(/Credit Note|CRED\b/gi) ?? []).length;
+  if (credMentions >= 3)                          { statementScore += 0.3; signals.push(`${credMentions} credit-note row mentions`); }
 
   // Invoice signals
   if (/^INVOICE\s*$/im.test(text))                { invoiceScore += 0.4; signals.push('"INVOICE" page title'); }
@@ -87,8 +94,13 @@ function detectKind(text: string): { kind: DocumentKind; signals: string[] } {
   if (/Invoice\/Tax Date/i.test(text))            { invoiceScore += 0.3; signals.push('Invoice/Tax Date label'); }
   if (/Total amt due/i.test(text))                { invoiceScore += 0.2; signals.push('Total amt due label'); }
 
-  // Credit note signals
-  if (/CREDIT NOTE/i.test(text))                  { creditScore += 0.7; signals.push('"CREDIT NOTE" title'); }
+  // Credit note signals — STANDALONE credit note documents only.
+  // "CREDIT NOTE" must appear as a TITLE (alone on a line, all caps, not embedded in a row).
+  // If we see lots of "Credit Note" mentions, that's a statement listing them, not a credit note doc.
+  if (/^\s*CREDIT NOTE\s*$/im.test(text) && credMentions <= 2) {
+    creditScore += 0.7;
+    signals.push('"CREDIT NOTE" standalone title');
+  }
 
   // Pick highest
   const max = Math.max(invoiceScore, statementScore, creditScore);

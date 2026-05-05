@@ -11,11 +11,19 @@
 // pdf-parse is a CommonJS module. Default-import then call as a function.
 import pdf from 'pdf-parse';
 
-import { detect } from './detect.js';
-import type { ParsedDocument, DetectionResult } from './types/index.js';
-import { parseAahInvoice } from './parsers/aah-invoice.js';
-import { parseAahStatement } from './parsers/aah-statement.js';
-import { parseAverInvoice } from './parsers/aver-invoice.js';
+import { detect } from './detect';
+import { extractTextWithOcr } from './ocr';
+import type { ParsedDocument, DetectionResult } from './types/index';
+import { parseAahInvoice } from './parsers/aah-invoice';
+import { parseAahStatement } from './parsers/aah-statement';
+import { parseAverInvoice } from './parsers/aver-invoice';
+import { parseAverStatement } from './parsers/aver-statement';
+
+/** Threshold below which we assume pdf-parse failed to find an embedded
+ * text layer (i.e. PDF is image-only) and fall back to OCR. 50 chars is
+ * generous — even a near-blank PDF with just a logo and page number tends
+ * to have less than this. */
+const OCR_FALLBACK_CHAR_THRESHOLD = 50;
 
 export interface ParseResult {
   detection: DetectionResult;
@@ -45,14 +53,32 @@ export async function parsePdf(buffer: Buffer): Promise<ParseResult> {
     };
   }
 
-  if (!text.trim()) {
-    errors.push('PDF contained no extractable text — likely a scanned image. Vision OCR fallback not yet implemented.');
-    return {
-      detection: { supplier: 'unknown', kind: 'unknown', confidence: 0, signals: [] },
-      rawText: '',
-      document: null,
-      errors,
-    };
+  // Tier 2: if pdf-parse returned (almost) nothing, the PDF is likely a
+  // scan with no embedded text layer. Fall back to OCR.
+  if (text.trim().length < OCR_FALLBACK_CHAR_THRESHOLD) {
+    try {
+      text = await extractTextWithOcr(buffer);
+    } catch (err) {
+      errors.push(
+        `OCR fallback failed: ${err instanceof Error ? err.message : String(err)}`
+      );
+      return {
+        detection: { supplier: 'unknown', kind: 'unknown', confidence: 0, signals: [] },
+        rawText: '',
+        document: null,
+        errors,
+      };
+    }
+
+    if (!text.trim()) {
+      errors.push('Both pdf-parse and OCR returned empty text — PDF may be blank or unreadable.');
+      return {
+        detection: { supplier: 'unknown', kind: 'unknown', confidence: 0, signals: [] },
+        rawText: '',
+        document: null,
+        errors,
+      };
+    }
   }
 
   // Step 2: Detect supplier + kind
@@ -67,6 +93,8 @@ export async function parsePdf(buffer: Buffer): Promise<ParseResult> {
     document = parseAahStatement(text);
   } else if (detection.supplier === 'aver' && detection.kind === 'invoice') {
     document = parseAverInvoice(text);
+  } else if (detection.supplier === 'aver' && detection.kind === 'statement') {
+    document = parseAverStatement(text);
   } else {
     errors.push(
       `No parser yet for ${detection.supplier}/${detection.kind}. ` +
@@ -78,5 +106,5 @@ export async function parsePdf(buffer: Buffer): Promise<ParseResult> {
 }
 
 // Re-export key types for consumers
-export type * from './types/index.js';
-export { detect } from './detect.js';
+export type * from './types/index';
+export { detect } from './detect';

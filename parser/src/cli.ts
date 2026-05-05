@@ -9,8 +9,8 @@
 
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { parsePdf } from './index.js';
-import type { ParsedInvoice, ParsedStatement } from './types/index.js';
+import { parsePdf } from './index';
+import type { ParsedInvoice, ParsedStatement } from './types/index';
 
 function printUsage() {
   console.error('Usage: npm run parse -- <file.pdf> [--raw] [--pretty]');

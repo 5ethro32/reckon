@@ -12,7 +12,7 @@
  * are extracted with field-anchored regexes.
  */
 
-import type { ParsedInvoice, InvoiceLine } from '../types/index.js';
+import type { ParsedInvoice, InvoiceLine } from '../types/index';
 
 /** Convert various date formats to ISO YYYY-MM-DD. */
 function toIsoDate(input: string): string {

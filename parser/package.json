@@ -4,12 +4,27 @@
   "description": "PDF invoice and statement parsers for UK pharmacy wholesalers",
   "type": "module",
   "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./types": {
+      "types": "./src/types/index.ts",
+      "default": "./src/types/index.ts"
+    }
+  },
   "scripts": {
     "parse": "tsx src/cli.ts",
     "test": "tsx src/test.ts"
   },
   "dependencies": {
-    "pdf-parse": "^1.1.1"
+    "@napi-rs/canvas": "^0.1.100",
+    "pdf-parse": "^1.1.1",
+    "pdfjs-dist": "^5.7.0",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
