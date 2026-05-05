@@ -458,11 +458,12 @@ function CollapsedAvatar({ email }: { email: string }) {
 // Brand mark + toggle icon
 // ────────────────────────────────────────────────────────────────────
 
-function BrandMark({ size = 22 }: { size?: number }) {
+function BrandMark({ size = 18 }: { size?: number }) {
   /* Geometric R-and-tick: four polygons forming an angular "R" with a check
    * built into the negative space. Cyan + indigo + navy + violet. The viewBox
    * is cropped to the artwork bounds (130-346 x 80-384 in the original 500x500
-   * file) so it renders cleanly at small sizes. */
+   * file) so it renders cleanly at small sizes. Size matches Amos's 18px
+   * sidebar logo convention — visually balances the nav icon row. */
   return (
     <svg
       width={size}

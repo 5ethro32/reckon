@@ -180,7 +180,10 @@ a:hover {
   color: var(--background);
 }
 .btn-primary:hover:not(:disabled) {
-  background: #000;
+  /* Token-driven hover: in light mode --accent is near-black, so we shift
+   * darker; in dark mode --accent is near-white, so we shift toward muted
+   * to give visible feedback without disappearing into the background. */
+  opacity: 0.85;
 }
 
 .btn-secondary {
