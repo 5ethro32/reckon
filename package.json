@@ -18,8 +18,5 @@
     "@supabase/supabase-js": "^2.46.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.0"
-  },
-  "dependencies": {
-    "@napi-rs/canvas-win32-arm64-msvc": "^1.0.0"
   }
 }
