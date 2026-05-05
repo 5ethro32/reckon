@@ -53,9 +53,10 @@ export async function updateSession(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
 
   // Public routes that don't require auth. '/' IS the login page in this app.
-  // Anything under /auth/ is also public (callback, confirm) — those routes
-  // establish the session.
-  const publicPaths = ['/', '/no-access'];
+  // /privacy and /terms are public so visitors can read them before signing
+  // up. Anything under /auth/ is also public (callback, confirm) — those
+  // routes establish the session.
+  const publicPaths = ['/', '/no-access', '/privacy', '/terms'];
   const isPublic =
     publicPaths.some(p => path === p) ||
     path.startsWith('/auth/');

@@ -4,6 +4,7 @@
  * No signup, no marketing. Mono / clean / Anthropic-aligned design.
  */
 
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import LoginForm from './login-form';
@@ -101,6 +102,16 @@ export default async function HomePage() {
           margin: 0,
         }}>
           Invoice and statement reconciliation for UK pharmacies.
+        </p>
+        <p style={{
+          fontSize: '11px',
+          color: 'var(--muted-light)',
+          margin: 0,
+          marginTop: '0.375rem',
+        }}>
+          <Link href="/privacy" style={{ color: 'var(--muted-light)' }}>Privacy</Link>
+          <span style={{ margin: '0 0.5rem' }}>·</span>
+          <Link href="/terms" style={{ color: 'var(--muted-light)' }}>Terms</Link>
         </p>
       </footer>
     </div>

@@ -77,10 +77,24 @@ export default function ConfirmHandler() {
       window.history.replaceState({}, '', window.location.pathname);
 
       if (!memberships || memberships.length === 0) {
-        router.replace('/no-access');
-      } else {
-        router.replace('/dashboard');
+        // Self-serve signup: create a fresh pharmacy + membership for this
+        // user. The onboarding modal on /dashboard will then prompt for the
+        // real pharmacy name. The RPC is idempotent — safe to retry.
+        setStatus('Setting up your account…');
+        const { error: rpcError } = await supabase.rpc('setup_new_pharmacy', {
+          p_pharmacy_name: 'My Pharmacy',
+        });
+        if (cancelled) return;
+        if (rpcError) {
+          setStatus(`Setup failed: ${rpcError.message}`);
+          router.replace(
+            `/?error=${encodeURIComponent('Could not set up your account: ' + rpcError.message)}`
+          );
+          return;
+        }
       }
+
+      router.replace('/dashboard');
     }
 
     run();

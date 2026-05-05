@@ -7,9 +7,13 @@
  * The IMPLICIT flow (token in URL fragment #access_token=...) is handled
  * by /auth/confirm/page.tsx because the fragment never reaches the server.
  *
- * Once authenticated, we check pharmacy_memberships:
+ * Self-serve signup: if the authenticated user has no membership yet, we
+ * call the setup_new_pharmacy RPC to create one with a placeholder name.
+ * The onboarding modal on /dashboard will then prompt for the real names.
+ *
  *   - Member of at least one pharmacy → redirect to /dashboard
- *   - Authenticated but no membership → redirect to /no-access
+ *   - Authenticated but no membership → auto-create, then /dashboard
+ *   - RPC fails → /no-access fallback
  */
 
 import { NextResponse, type NextRequest } from 'next/server';
@@ -45,7 +49,17 @@ export async function GET(request: NextRequest) {
     .limit(1);
 
   if (!memberships || memberships.length === 0) {
-    return NextResponse.redirect(`${origin}/no-access`);
+    // Self-serve signup: create a fresh pharmacy + membership for this user.
+    // The onboarding modal on /dashboard then prompts them for the real
+    // name. The RPC is idempotent — concurrent retries are safe.
+    const { error: rpcError } = await supabase.rpc('setup_new_pharmacy', {
+      p_pharmacy_name: 'My Pharmacy',
+    });
+    if (rpcError) {
+      return NextResponse.redirect(
+        `${origin}/?error=${encodeURIComponent('Could not set up your account: ' + rpcError.message)}`
+      );
+    }
   }
 
   return NextResponse.redirect(`${origin}${next}`);

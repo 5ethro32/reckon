@@ -66,16 +66,22 @@ export default async function DashboardPage() {
   const supabase = await createClient();
 
   const { data: { user } } = await supabase.auth.getUser();
-  const firstName = (user?.email ?? '').split('@')[0]!.split('.')[0]!;
-  const greetName = firstName.charAt(0).toUpperCase() + firstName.slice(1);
 
-  // Fire all four queries in parallel — no waterfalls.
+  // Fire all five queries in parallel — no waterfalls.
+  // The membership query is folded in here so the greeting can use the
+  // user's chosen display_name without an extra round-trip.
   const [
+    membershipRes,
     invoicesRes,
     flaggedLinesRes,
     creditRequestsRes,
     resolvedCreditsRes,
   ] = await Promise.all([
+    supabase
+      .from('pharmacy_memberships')
+      .select('display_name')
+      .eq('user_id', user?.id ?? '')
+      .limit(1),
     // 1) All open invoices with their lines (so we can compute reconciled
     // status from line flags). Sorted desc so the preview shows newest first.
     supabase
@@ -108,6 +114,15 @@ export default async function DashboardPage() {
       .eq('status', 'resolved')
       .gte('resolved_at', startOfMonthISO()),
   ]);
+
+  // Derive first name: display_name → first word; fallback to email prefix.
+  const displayName = (membershipRes.data?.[0]?.display_name as string | null) ?? null;
+  const greetName = displayName
+    ? (displayName.split(' ')[0] ?? displayName)
+    : (() => {
+        const prefix = (user?.email ?? '').split('@')[0]!.split('.')[0]!;
+        return prefix.charAt(0).toUpperCase() + prefix.slice(1);
+      })();
 
   const errors = [
     invoicesRes.error,

@@ -56,15 +56,15 @@ export default async function NoAccessPage() {
             margin: 0,
             marginBottom: '0.625rem',
           }}>
-            No access yet
+            Setting up your account
           </h1>
           <p style={{ fontSize: '13px', color: 'var(--muted)', margin: 0, marginBottom: '0.5rem', lineHeight: 1.5 }}>
-            You&apos;re signed in as{' '}
-            <span style={{ color: 'var(--foreground)' }}>{user?.email}</span>,
-            but this email isn&apos;t set up for any pharmacy yet.
+            Something went wrong creating your account for{' '}
+            <span style={{ color: 'var(--foreground)' }}>{user?.email}</span>.
           </p>
           <p style={{ fontSize: '13px', color: 'var(--muted)', margin: 0, marginBottom: '1.5rem', lineHeight: 1.5 }}>
-            Contact your Reckon admin to be added.
+            Please try signing in again. If the problem persists, email{' '}
+            <a href="mailto:jethrogoldsmith@gmail.com">jethrogoldsmith@gmail.com</a>.
           </p>
           <LogoutButton variant="standalone" />
         </div>

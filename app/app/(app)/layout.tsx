@@ -6,11 +6,17 @@
  * to localStorage and renders icons conditionally). The layout itself does
  * a Supabase auth check, so it must stay server-rendered. AppShell is the
  * boundary.
+ *
+ * Onboarding gate: if the user's pharmacy_memberships.onboarded_at IS NULL,
+ * we render OnboardingModal instead of AppShell. The modal is a blocking
+ * full-screen overlay — there is no skip. On completion it does
+ * window.location.reload() so this layout re-runs and onboarded_at is set.
  */
 
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import AppShell from './app-shell';
+import OnboardingModal from './onboarding-modal';
 
 export default async function AppLayout({
   children,
@@ -23,7 +29,7 @@ export default async function AppLayout({
 
   const { data: memberships } = await supabase
     .from('pharmacy_memberships')
-    .select('pharmacy_id, role, pharmacies(id, name)')
+    .select('pharmacy_id, role, onboarded_at, pharmacies(id, name)')
     .eq('user_id', user.id)
     .limit(1);
 
@@ -31,10 +37,20 @@ export default async function AppLayout({
     redirect('/no-access');
   }
 
-  const pharmacyData = memberships[0]!.pharmacies as
+  const membership = memberships[0]!;
+
+  const pharmacyData = membership.pharmacies as
     | { id: string; name: string }
     | { id: string; name: string }[];
   const pharmacy = Array.isArray(pharmacyData) ? pharmacyData[0]! : pharmacyData;
+
+  if (!membership.onboarded_at) {
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--surface-raised)' }}>
+        <OnboardingModal currentPharmacyName={pharmacy.name} />
+      </div>
+    );
+  }
 
   return (
     <AppShell userEmail={user.email ?? ''} pharmacyName={pharmacy.name}>
