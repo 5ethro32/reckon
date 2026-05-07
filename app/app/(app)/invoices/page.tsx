@@ -64,7 +64,7 @@ function EmptyState() {
       <div className="page-header">
         <div>
           <h1 className="page-header-title">Deliveries</h1>
-          <p className="page-header-subtitle">No invoices uploaded yet</p>
+          <p className="page-header-subtitle">Upload an invoice to start reconciling</p>
         </div>
       </div>
       <div style={{
@@ -90,8 +90,9 @@ function EmptyState() {
         <h2 style={{ fontSize: '15px', fontWeight: 600, margin: 0, marginBottom: '0.375rem' }}>
           No deliveries yet
         </h2>
-        <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0, marginBottom: '1.5rem' }}>
-          Upload your first wholesaler invoice to get started.
+        <p style={{ fontSize: '12px', color: 'var(--muted)', margin: '0 auto 1.5rem', maxWidth: '24rem', lineHeight: 1.5 }}>
+          Upload a wholesaler invoice PDF and Reckon will pull out every
+          line so you can flag what didn’t arrive or arrived broken.
         </p>
         <Link href="/upload" className="btn btn-primary">Upload PDFs</Link>
       </div>

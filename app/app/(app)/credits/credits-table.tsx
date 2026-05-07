@@ -163,13 +163,17 @@ function OutstandingSection({ outstanding }: { outstanding: OutstandingRequest[]
         <div
           className="card"
           style={{
-            padding: '2rem 1rem',
+            padding: '2.5rem 1.5rem',
             textAlign: 'center',
-            color: 'var(--muted)',
-            fontSize: '12px',
           }}
         >
-          No outstanding credit requests.
+          <p style={{ fontSize: '14px', fontWeight: 500, margin: 0, marginBottom: '0.375rem' }}>
+            No credits to chase.
+          </p>
+          <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0, lineHeight: 1.5 }}>
+            When you flag short or damaged lines on a delivery, a credit
+            request lands here so you can track it through to recovery.
+          </p>
         </div>
       ) : (
         <div className="card" style={{ overflow: 'hidden' }}>

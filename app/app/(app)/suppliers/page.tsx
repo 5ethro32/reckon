@@ -7,6 +7,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server';
+import { CONTACT_EMAIL } from '@/lib/contact';
 import SupplierForm, { type SupplierContact } from './supplier-form';
 
 export default async function SuppliersPage() {
@@ -55,11 +56,15 @@ function EmptyState() {
       }}
     >
       <h2 style={{ fontSize: '14px', fontWeight: 600, margin: 0, marginBottom: '0.375rem' }}>
-        No suppliers configured yet
+        Hmm, no suppliers here yet
       </h2>
-      <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0 }}>
-        Supplier rows are seeded automatically when your pharmacy is created. If you&apos;re
-        seeing this, ask an admin to run the seed migration.
+      <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0, lineHeight: 1.5 }}>
+        Suppliers should seed automatically when your pharmacy is set up.
+        If you’re seeing this, drop us a note at{' '}
+        <a href={`mailto:${CONTACT_EMAIL}`} style={{ color: 'var(--brand)' }}>
+          {CONTACT_EMAIL}
+        </a>{' '}
+        and we’ll fix it.
       </p>
     </div>
   );

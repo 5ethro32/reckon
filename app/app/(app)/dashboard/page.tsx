@@ -339,7 +339,7 @@ export default async function DashboardPage() {
               </h2>
               <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0 }}>
                 {todaysDeliveriesPreview.length === 0
-                  ? 'No invoices yet.'
+                  ? 'Nothing here yet — uploaded invoices will land here.'
                   : 'Tap a row to start reconciling.'}
               </p>
             </div>
@@ -431,7 +431,7 @@ export default async function DashboardPage() {
             </p>
             <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0 }}>
               {savedThisMonth === 0
-                ? 'No credits resolved yet this month.'
+                ? 'Nothing recovered yet this month.'
                 : `from ${resolvedThisMonth.length} ${pluralize(resolvedThisMonth.length, 'credit')} resolved`}
             </p>
           </section>
@@ -637,8 +637,12 @@ function DeliveriesEmpty() {
         borderTop: '1px solid var(--border-subtle)',
       }}
     >
-      <p style={{ fontSize: '13px', color: 'var(--muted)', margin: 0, marginBottom: '1rem' }}>
-        No deliveries uploaded yet.
+      <p style={{ fontSize: '13px', fontWeight: 500, margin: 0, marginBottom: '0.25rem' }}>
+        Nothing to reconcile yet
+      </p>
+      <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0, marginBottom: '1rem', lineHeight: 1.5 }}>
+        Drop in a wholesaler invoice PDF and Reckon will match it
+        line-by-line against what you actually received.
       </p>
       <Link href="/upload" className="btn btn-primary btn-sm">
         Upload PDFs

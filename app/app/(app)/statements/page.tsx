@@ -117,7 +117,7 @@ function EmptyState() {
       <div className="page-header">
         <div>
           <h1 className="page-header-title">Statements</h1>
-          <p className="page-header-subtitle">No statements uploaded yet</p>
+          <p className="page-header-subtitle">Upload a statement to cross-check what you’re being billed</p>
         </div>
       </div>
       <div style={{
@@ -144,8 +144,9 @@ function EmptyState() {
         <h2 style={{ fontSize: '15px', fontWeight: 600, margin: 0, marginBottom: '0.375rem' }}>
           No statements yet
         </h2>
-        <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0, marginBottom: '1.5rem' }}>
-          Upload a wholesaler statement to reconcile against your deliveries.
+        <p style={{ fontSize: '12px', color: 'var(--muted)', margin: '0 auto 1.5rem', maxWidth: '24rem', lineHeight: 1.5 }}>
+          Upload a wholesaler statement PDF and Reckon will line it up
+          against your delivered invoices — so missed credits jump out.
         </p>
         <Link href="/upload" className="btn btn-primary">Upload PDFs</Link>
       </div>
