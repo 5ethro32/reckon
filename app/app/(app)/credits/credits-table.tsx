@@ -75,6 +75,50 @@ function ageBadge(days: number | null): { label: string; cls: string } {
   return { label: `${days}d`, cls: 'badge badge-neutral' };
 }
 
+// ---------------------------------------------------------------------------
+// CSV export helpers — quote fields containing comma/quote/newline; double
+// embedded quotes; prepend UTF-8 BOM so Excel renders accented chars right.
+// ---------------------------------------------------------------------------
+function csvEscape(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return '';
+  const s = String(value);
+  if (/[",\n\r]/.test(s)) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+function DownloadIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      aria-hidden
+      style={{ verticalAlign: '-2px', marginRight: '0.375rem' }}
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+    </svg>
+  );
+}
+
+function downloadCsv(rows: string[][], filename: string) {
+  const csv = '﻿' + rows.map(r => r.map(csvEscape).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  // Defer revoke so Safari has time to start the download.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 export default function CreditsTable({
   outstanding,
   flagged,
@@ -139,6 +183,26 @@ function OutstandingSection({ outstanding }: { outstanding: OutstandingRequest[]
     }
   }
 
+  function exportCsv() {
+    const today = new Date().toISOString().slice(0, 10);
+    const header = ['Sent', 'Supplier', 'Status', 'Invoices', 'Lines', 'Total (£)', 'Days outstanding'];
+    const body = outstanding.map(req => {
+      const supplierLabel = supplierLabels[req.supplier] ?? req.supplier;
+      const sentDate = req.sent_at ? new Date(req.sent_at).toISOString().slice(0, 10) : '';
+      const days = daysBetween(req.sent_at);
+      return [
+        sentDate,
+        supplierLabel,
+        req.status,
+        String(req.invoiceCount),
+        String(req.lineCount),
+        req.total_amount.toFixed(2),
+        days === null ? '' : String(days),
+      ];
+    });
+    downloadCsv([header, ...body], `reckon-credits-${today}.csv`);
+  }
+
   return (
     <section style={{ marginBottom: '2rem' }}>
       <div
@@ -146,17 +210,30 @@ function OutstandingSection({ outstanding }: { outstanding: OutstandingRequest[]
           display: 'flex',
           alignItems: 'baseline',
           justifyContent: 'space-between',
+          gap: '0.75rem',
           marginBottom: '0.875rem',
         }}
       >
         <h2 style={{ fontSize: '15px', fontWeight: 600, margin: 0 }}>
           Outstanding ({outstanding.length})
         </h2>
-        {errorMsg && (
-          <span style={{ fontSize: '11px', color: 'var(--status-critical-text)' }}>
-            {errorMsg}
-          </span>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          {errorMsg && (
+            <span style={{ fontSize: '11px', color: 'var(--status-critical-text)' }}>
+              {errorMsg}
+            </span>
+          )}
+          {outstanding.length > 0 && (
+            <button
+              type="button"
+              onClick={exportCsv}
+              className="btn btn-ghost btn-sm"
+              title="Download outstanding credits as CSV"
+            >
+              <DownloadIcon /> Export CSV
+            </button>
+          )}
+        </div>
       </div>
 
       {outstanding.length === 0 ? (
