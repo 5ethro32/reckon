@@ -378,9 +378,28 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Retroactive match: if a CRED row on a prior statement already matches
+  // this credit_request's amount, link them now and mark the credit_request
+  // as resolved. Without this, credit_requests created AFTER their
+  // statement was uploaded stay forever in 'sent' status. The RPC is
+  // idempotent + best-effort — if it fails we still return the credit
+  // request so the user can email the supplier.
+  let autoResolved = false;
+  const matchRpc = await supabase.rpc('try_match_credit_request_to_credit_row', {
+    p_credit_request_id: inserted.id,
+  });
+  if (matchRpc.error) {
+    // Non-fatal — log and carry on. Most likely cause: migration 0007
+    // hasn't been applied yet on this Supabase project.
+    console.warn('try_match_credit_request_to_credit_row:', matchRpc.error.message);
+  } else if (matchRpc.data) {
+    autoResolved = true;
+  }
+
   return NextResponse.json({
     credit_request_id: inserted.id,
     mailto_url: mailtoUrl,
+    auto_resolved: autoResolved,
   });
 }
 

@@ -245,6 +245,13 @@ async function persistStatement(
     invoice_numbers: string[];  // invoice_numbers covered by this credit_request
   };
 
+  // We include 'draft' credit_requests as match candidates. The original
+  // version only looked at sent/overdue, but a pharmacist might generate a
+  // credit-request DRAFT (so the line gets credit_request_id linked) and
+  // never click "send", relying on Reckon to confirm via the next statement.
+  // Without 'draft' here, that line stays stuck — its credit_request never
+  // resolves, AND the line-level matcher skips it because credit_request_id
+  // is set. Treating draft as a valid match candidate fixes both stuck cases.
   const { data: creditRequestRows } = await supabase
     .from('credit_requests')
     .select(`
@@ -253,7 +260,7 @@ async function persistStatement(
     `)
     .eq('pharmacy_id', pharmacyId)
     .eq('supplier', statement.supplier)
-    .in('status', ['sent', 'overdue']);
+    .in('status', ['draft', 'sent', 'overdue']);
 
   const openCredits: OpenCreditRequest[] = (creditRequestRows ?? []).map(
     (cr: { id: string; total_amount: number; invoice_lines: Array<{ invoices: { invoice_number: string } | { invoice_number: string }[] }> }) => {
