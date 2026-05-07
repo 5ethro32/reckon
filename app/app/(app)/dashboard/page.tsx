@@ -94,9 +94,11 @@ export default async function DashboardPage() {
       .order('invoice_date', { ascending: false }),
 
     // 2) Lines flagged but NOT yet on a credit request — the chase backlog.
+    // Supplier comes from the joined invoice so the per-supplier breakdown
+    // can attribute pending credits.
     supabase
       .from('invoice_lines')
-      .select('id, gross, flags, invoices!inner(deleted_at)')
+      .select('id, gross, flags, invoices!inner(supplier, deleted_at)')
       .is('credit_request_id', null)
       .not('flags', 'eq', '{}'),
 
@@ -141,13 +143,16 @@ export default async function DashboardPage() {
     invoice_lines: Array<{ flags: string[] }>;
   }>;
 
-  const flaggedLines = ((flaggedLinesRes.data ?? []) as unknown as Array<{
+  const flaggedLinesRaw = (flaggedLinesRes.data ?? []) as unknown as Array<{
     id: string; gross: number | string; flags: string[];
-    invoices: { deleted_at: string | null } | { deleted_at: string | null }[];
-  }>).filter(l => {
-    const inv = Array.isArray(l.invoices) ? l.invoices[0] : l.invoices;
-    return inv && !inv.deleted_at;
-  });
+    invoices: { supplier: string; deleted_at: string | null } | { supplier: string; deleted_at: string | null }[];
+  }>;
+  const flaggedLines = flaggedLinesRaw
+    .map(l => {
+      const inv = Array.isArray(l.invoices) ? l.invoices[0] : l.invoices;
+      return inv ? { id: l.id, gross: l.gross, flags: l.flags, supplier: inv.supplier, deleted_at: inv.deleted_at } : null;
+    })
+    .filter((l): l is { id: string; gross: number | string; flags: string[]; supplier: string; deleted_at: string | null } => l !== null && !l.deleted_at);
 
   const creditRequests = (creditRequestsRes.data ?? []) as Array<{
     id: string; supplier: string; status: string; total_amount: number | string;
@@ -215,6 +220,62 @@ export default async function DashboardPage() {
   const flaggedTotal = flaggedLines.length;
 
   const isFreshAccount = invoices.length === 0;
+
+  // ─── Per-supplier breakdown ──────────────────────────────────────
+  // Aggregates invoices/lines/pending/outstanding into one row per supplier
+  // so a pharmacist can see at a glance which wholesaler needs attention.
+  // Sorted by attention-needed (pending + outstanding £) descending.
+  type SupplierRow = {
+    supplier: string;
+    invoiceCount: number;
+    totalLines: number;
+    cleanLines: number;
+    pendingGross: number;
+    outstandingTotal: number;
+    outstandingCount: number;
+  };
+  const supplierMap = new Map<string, SupplierRow>();
+  function ensureRow(s: string): SupplierRow {
+    let r = supplierMap.get(s);
+    if (!r) {
+      r = {
+        supplier: s,
+        invoiceCount: 0,
+        totalLines: 0,
+        cleanLines: 0,
+        pendingGross: 0,
+        outstandingTotal: 0,
+        outstandingCount: 0,
+      };
+      supplierMap.set(s, r);
+    }
+    return r;
+  }
+  for (const inv of invoices) {
+    const r = ensureRow(inv.supplier);
+    r.invoiceCount += 1;
+    r.totalLines += inv.invoice_lines.length;
+    r.cleanLines += inv.invoice_lines.filter(l => (l.flags ?? []).length === 0).length;
+  }
+  for (const fl of flaggedLines) {
+    const r = ensureRow(fl.supplier);
+    r.pendingGross += Number(fl.gross);
+  }
+  for (const cr of creditRequests) {
+    const r = ensureRow(cr.supplier);
+    r.outstandingTotal += Number(cr.total_amount);
+    r.outstandingCount += 1;
+  }
+  const supplierBreakdown = [...supplierMap.values()]
+    .filter(r => r.invoiceCount > 0 || r.pendingGross > 0 || r.outstandingTotal > 0)
+    .sort((a, b) => {
+      const aAttn = a.pendingGross + a.outstandingTotal;
+      const bAttn = b.pendingGross + b.outstandingTotal;
+      if (bAttn !== aAttn) return bAttn - aAttn;
+      // tiebreak: more invoices first, then alphabetical
+      if (b.invoiceCount !== a.invoiceCount) return b.invoiceCount - a.invoiceCount;
+      return a.supplier.localeCompare(b.supplier);
+    });
 
   return (
     <div>
@@ -319,6 +380,66 @@ export default async function DashboardPage() {
           tone={unchased.length > 0 ? 'critical' : 'neutral'}
         />
       </section>
+
+      {/* ─── Per-supplier breakdown ──────────────────────────────── */}
+      {supplierBreakdown.length >= 2 && (
+        <section className="card" style={{ overflow: 'hidden', marginBottom: '1.5rem' }}>
+          <div style={{ padding: '1.125rem 1.25rem 0.5rem' }}>
+            <h2 style={{ fontSize: '15px', fontWeight: 600, margin: 0, marginBottom: '0.25rem' }}>
+              By supplier
+            </h2>
+            <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0 }}>
+              Where attention is needed first.
+            </p>
+          </div>
+          <div className="table-scroll">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Supplier</th>
+                  <th className="num">Invoices</th>
+                  <th className="num">Reconciled</th>
+                  <th className="num">Pending</th>
+                  <th className="num">Outstanding</th>
+                </tr>
+              </thead>
+              <tbody>
+                {supplierBreakdown.map(row => {
+                  const reconciledPct = row.totalLines === 0
+                    ? null
+                    : Math.round((row.cleanLines / row.totalLines) * 100);
+                  return (
+                    <tr key={row.supplier}>
+                      <td>{supplierLabels[row.supplier] ?? row.supplier}</td>
+                      <td className="num">{row.invoiceCount}</td>
+                      <td className="num">
+                        {reconciledPct === null ? '—' : `${reconciledPct}%`}
+                      </td>
+                      <td className="num">
+                        {row.pendingGross === 0
+                          ? <span style={{ color: 'var(--muted-light)' }}>—</span>
+                          : `£${row.pendingGross.toFixed(2)}`}
+                      </td>
+                      <td className="num">
+                        {row.outstandingTotal === 0
+                          ? <span style={{ color: 'var(--muted-light)' }}>—</span>
+                          : (
+                            <>
+                              £{row.outstandingTotal.toFixed(2)}
+                              <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
+                                {' '}· {row.outstandingCount} {pluralize(row.outstandingCount, 'request')}
+                              </span>
+                            </>
+                          )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {/* ─── Two-column body: deliveries (left) + waiting/saved (right) ─ */}
       <div className="dash-body-grid">
