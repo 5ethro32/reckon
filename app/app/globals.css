@@ -528,6 +528,54 @@ a:hover {
   background-size: 1rem;
 }
 
+/* ─── Status select ─────────────────────────────────────────────────────
+ *
+ * Used for line-level status pickers in the deliveries (invoice) view.
+ * Shape: neutral chrome (so the open dropdown menu always renders legibly
+ * regardless of browser / OS / dark mode). State is conveyed by a leading
+ * coloured dot, set via inline style or a CSS variable on the element.
+ *
+ * Do NOT combine .badge / .badge-* with a <select> — native option lists
+ * inherit the host control's background and text colour, and dark-mode
+ * status backgrounds collapse contrast in some browsers.
+ */
+.status-select {
+  appearance: none;
+  height: 1.625rem;
+  padding: 0 1.5rem 0 1.4rem;     /* extra left for the dot */
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  background-color: var(--input-bg);
+  color: var(--foreground);
+  background-image:
+    /* state dot — colour comes from --status-dot-color set on the element */
+    radial-gradient(circle at 0.45rem 50%, var(--status-dot-color, var(--muted)) 0 0.21rem, transparent 0.22rem),
+    /* chevron */
+    url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position:
+    left 0 center,
+    right 0.25rem center;
+  background-size:
+    auto,
+    1rem;
+}
+.status-select:hover {
+  border-color: var(--muted);
+}
+.status-select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.status-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* ─── Stats grid (used on statement detail) ────────────────────────── */
 
 .stat-grid {

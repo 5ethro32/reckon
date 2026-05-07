@@ -59,11 +59,14 @@ const statusLabels: Record<LineStatus, string> = {
   none: 'Not received',
 };
 
-const statusBadge: Record<LineStatus, string> = {
-  full: 'badge-success',
-  short: 'badge-warning',
-  damaged: 'badge-warning',
-  none: 'badge-critical',
+// State dot colour for the status-select (see .status-select in globals.css).
+// We use the badge text colour (the brighter of each pair) so the dot reads
+// clearly on the neutral input background in both light and dark mode.
+const statusDotColor: Record<LineStatus, string> = {
+  full: 'var(--status-success-text)',
+  short: 'var(--status-warning-text)',
+  damaged: 'var(--status-warning-text)',
+  none: 'var(--status-critical-text)',
 };
 
 const dispositionLabels: Record<Exclude<DamageDisposition, null>, string> = {
@@ -398,8 +401,9 @@ function LineRow({
               value={status}
               disabled={saveState === 'saving'}
               onChange={e => onStatusChange(e.target.value as LineStatus)}
-              className={`select-mini badge ${statusBadge[status]}`}
-              style={{ appearance: 'none' as const }}
+              className="status-select"
+              style={{ ['--status-dot-color' as string]: statusDotColor[status] }}
+              aria-busy={saveState === 'saving'}
             >
               <option value="full">{statusLabels.full}</option>
               <option value="short">{statusLabels.short}</option>

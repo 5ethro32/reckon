@@ -69,6 +69,24 @@ If you want to contribute code directly:
   Supabase client (which respects RLS). Use `lib/supabase/admin.ts` only
   in trusted server contexts where bypassing RLS is genuinely necessary.
 
+### Badges vs form controls
+
+The `.badge` / `.badge-success` / `.badge-warning` / `.badge-critical` /
+`.badge-neutral` classes are for **read-only `<span>` elements** that
+display state. Do not combine them with interactive form controls
+(`<select>`, `<input>`, `<button>`).
+
+Reason: native `<option>` lists inherit the host `<select>`'s background
+and text colour. The badge backgrounds in dark mode are translucent
+greens / ambers / reds that some browsers render with collapsed contrast
+when the dropdown menu opens.
+
+For interactive controls that need to convey state, use neutral chrome
+plus a state indicator. The status select on the invoice detail page
+(`app/(app)/invoices/[id]/lines-editor.tsx`) is the canonical example:
+neutral input background, chevron right, coloured dot left, the dot
+colour switched via a CSS custom property (`--status-dot-color`).
+
 ## License
 
 By contributing you agree that your contributions will be licensed under
