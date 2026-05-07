@@ -6,16 +6,18 @@
   --border: #D1D5DB;
   --border-subtle: #E5E7EB;
   /* Brand palette — derived from the geometric R-and-tick logo.
-   *   --brand        primary (violet, the dominant logo colour)
+   *   --brand        primary (the mid blue from the logo's R-and-tick)
    *   --brand-hover  one shade darker for hover states
    *   --brand-soft   tinted background for subtle highlights
    *   --brand-cyan   secondary accent (the bright cyan triangle)
+   *   --brand-violet tertiary accent (the violet polygon — used sparingly)
    *   --brand-deep   darkest tone (navy — sparingly, for depth)
    */
-  --brand: #7163F6;
-  --brand-hover: #5B4DE8;
-  --brand-soft: rgba(113, 99, 246, 0.08);
+  --brand: #109DDB;
+  --brand-hover: #0B7EB0;
+  --brand-soft: rgba(16, 157, 219, 0.08);
   --brand-cyan: #67D2F3;
+  --brand-violet: #7163F6;
   --brand-deep: #2C2A9A;
   --accent: #1A1A1A;
   --accent-light: rgba(26, 26, 26, 0.06);
@@ -668,7 +670,7 @@ a:hover {
 }
 .dropzone[data-dragging="true"] {
   border-color: var(--brand);
-  background: rgba(61, 175, 172, 0.04);
+  background: var(--brand-soft);
 }
 
 /* ─── Animations ────────────────────────────────────────────────────── */
