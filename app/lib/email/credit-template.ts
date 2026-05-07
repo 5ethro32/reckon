@@ -40,6 +40,10 @@ export type CreditEmailLine = {
   notes?: string | null;
   /** Only meaningful when flags includes 'damaged'. */
   damageDisposition?: DamageDisposition;
+  /** Quantity returned — only meaningful when flags includes 'returned'. */
+  qtyReturned?: number | null;
+  /** Reason for return — only meaningful when flags includes 'returned'. */
+  returnDisposition?: 'damaged' | 'wrong_product' | 'expired' | 'over_ordered' | 'other' | null;
 };
 
 export type CreditEmailInput = {
@@ -153,6 +157,27 @@ function lineDescriptor(line: CreditEmailLine): string {
     const shortBy = Math.max(0, line.qtyOrdered - received);
     const packWord = shortBy === 1 ? 'pack' : 'packs';
     let body = `received ${received} of ${line.qtyOrdered} — short ${shortBy} ${packWord}${amount}`;
+    if (note) body += ` — Note: ${note}`;
+    return `- ${head}: ${body}`;
+  }
+
+  if (line.flags.includes('returned')) {
+    const returnedQty = line.qtyReturned ?? line.qtyOrdered;
+    const packWord = returnedQty === 1 ? 'pack' : 'packs';
+    const reasonText = (() => {
+      switch (line.returnDisposition ?? null) {
+        case 'damaged':       return ' — damaged on arrival';
+        case 'wrong_product': return ' — wrong product picked';
+        case 'expired':       return ' — short-dated / expired on arrival';
+        case 'over_ordered':  return ' — over-ordered, returning unused stock';
+        case 'other':         return note ? '' : ' — please see note';
+        default:              return '';
+      }
+    })();
+    const partial = returnedQty < line.qtyOrdered
+      ? `${returnedQty} of ${line.qtyOrdered} ${packWord} returned`
+      : `${returnedQty} ${packWord} returned`;
+    let body = `${partial}${reasonText}${amount}`;
     if (note) body += ` — Note: ${note}`;
     return `- ${head}: ${body}`;
   }

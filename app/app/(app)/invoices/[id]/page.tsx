@@ -35,7 +35,14 @@ export default async function InvoiceDetailPage({
 
   const { data: lines } = await supabase
     .from('invoice_lines')
-    .select('id, line_number, supplier_sku, description, pack_size, qty_ordered, qty_received, unit_price, net, vat_rate, vat_amount, gross, flags, notes')
+    .select(`
+      id, line_number, supplier_sku, description, pack_size,
+      qty_ordered, qty_received, qty_returned,
+      unit_price, net, vat_rate, vat_amount, gross,
+      flags, notes,
+      damage_disposition, return_disposition,
+      credited_via_statement_line_id
+    `)
     .eq('invoice_id', invoice.id)
     .order('line_number');
 

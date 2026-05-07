@@ -91,45 +91,42 @@ export async function POST(request: NextRequest) {
   }
 
   // Load all the lines in one go. RLS limits us to the user's pharmacy.
-  // Try with damage_disposition; if migration 0003 hasn't been applied yet,
-  // retry without it so the rest of the flow still works.
-  let lines: Array<Record<string, unknown>> | null = null;
-  let migration0003Pending = false;
-  {
-    const r = await supabase
-      .from('invoice_lines')
-      .select(
-        `id, invoice_id, supplier_sku, description, pack_size,
-         qty_ordered, qty_received, net, vat_amount, gross,
-         flags, notes, damage_disposition, credit_request_id,
-         invoices ( id, supplier, invoice_number, invoice_date, pharmacy_id )`
-      )
-      .in('id', requestedLineIds);
+  //
+  // Schema-compatibility fallback: if a migration column doesn't exist yet
+  // (e.g. self-hoster hasn't applied 0003 / 0005), the SELECT errors out.
+  // We progressively drop unknown columns and retry until something works.
+  // Downstream code defaults missing fields to null which is correct.
+  const FULL_SELECT = `id, invoice_id, supplier_sku, description, pack_size,
+     qty_ordered, qty_received, qty_returned, net, vat_amount, gross,
+     flags, notes, damage_disposition, return_disposition, credit_request_id,
+     invoices ( id, supplier, invoice_number, invoice_date, pharmacy_id )`;
+  const FALLBACK_SELECT_NO_0005 = `id, invoice_id, supplier_sku, description, pack_size,
+     qty_ordered, qty_received, net, vat_amount, gross,
+     flags, notes, damage_disposition, credit_request_id,
+     invoices ( id, supplier, invoice_number, invoice_date, pharmacy_id )`;
+  const FALLBACK_SELECT_NO_0003 = `id, invoice_id, supplier_sku, description, pack_size,
+     qty_ordered, qty_received, net, vat_amount, gross,
+     flags, notes, credit_request_id,
+     invoices ( id, supplier, invoice_number, invoice_date, pharmacy_id )`;
 
-    if (r.error && /damage_disposition/i.test(r.error.message)) {
-      migration0003Pending = true;
-      const r2 = await supabase
-        .from('invoice_lines')
-        .select(
-          `id, invoice_id, supplier_sku, description, pack_size,
-           qty_ordered, qty_received, net, vat_amount, gross,
-           flags, notes, credit_request_id,
-           invoices ( id, supplier, invoice_number, invoice_date, pharmacy_id )`
-        )
-        .in('id', requestedLineIds);
-      if (r2.error) {
-        return NextResponse.json({ error: r2.error.message }, { status: 500 });
-      }
-      lines = (r2.data as Array<Record<string, unknown>>) ?? null;
-    } else if (r.error) {
+  let lines: Array<Record<string, unknown>> | null = null;
+  for (const sel of [FULL_SELECT, FALLBACK_SELECT_NO_0005, FALLBACK_SELECT_NO_0003]) {
+    const r = await supabase.from('invoice_lines').select(sel).in('id', requestedLineIds);
+    if (!r.error) {
+      lines = (r.data as unknown as Array<Record<string, unknown>>) ?? null;
+      break;
+    }
+    // If error is about a missing column, fall through to a leaner SELECT.
+    if (!/column .*does not exist/i.test(r.error.message)) {
       return NextResponse.json({ error: r.error.message }, { status: 500 });
-    } else {
-      lines = (r.data as Array<Record<string, unknown>>) ?? null;
     }
   }
-  // Note: migration0003Pending is set when 0003 hasn't been applied yet —
-  // the line objects won't have damage_disposition; downstream code defaults
-  // to null which is correct.
+  if (!lines) {
+    return NextResponse.json(
+      { error: 'Could not load invoice lines — apply pending migrations.' },
+      { status: 500 }
+    );
+  }
   if (!lines || lines.length !== requestedLineIds.length) {
     return NextResponse.json(
       { error: 'One or more lines not found or not accessible' },
@@ -304,6 +301,11 @@ export async function POST(request: NextRequest) {
       gross: Number(raw.gross),
       notes: (raw.notes as string | null) ?? null,
       damageDisposition: (raw.damage_disposition as 'returning' | 'disposed' | 'awaiting' | null) ?? null,
+      qtyReturned: raw.qty_returned === null || raw.qty_returned === undefined
+        ? null
+        : Number(raw.qty_returned),
+      returnDisposition:
+        (raw.return_disposition as 'damaged' | 'wrong_product' | 'expired' | 'over_ordered' | 'other' | null | undefined) ?? null,
     };
   });
 

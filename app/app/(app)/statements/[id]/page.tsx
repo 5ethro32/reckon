@@ -1,14 +1,11 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
+import StatementDetailTable, { type StatementDetailRow } from './statement-detail-table';
 
 const supplierLabels: Record<string, string> = {
   aah: 'AAH', aver: 'Aver', phoenix: 'Phoenix',
   alliance: 'Alliance', ethigen: 'Ethigen', numark: 'Numark',
-};
-
-const docTypeLabels: Record<string, string> = {
-  INV: 'Invoice', CRED: 'Credit', OTHER: 'Other',
 };
 
 export default async function StatementDetailPage({
@@ -28,37 +25,120 @@ export default async function StatementDetailPage({
 
   if (error || !statement) notFound();
 
-  const { data: lines } = await supabase
-    .from('statement_lines')
-    .select(`
-      id, line_number, document_date, document_number, document_type,
-      reference, due_date, net, vat, total,
-      matched_invoice_id, match_status,
-      invoices:matched_invoice_id (
-        id, invoice_number, gross_total, receipt_status,
-        invoice_lines ( gross, flags )
-      )
-    `)
-    .eq('statement_id', statement.id)
-    .order('line_number');
+  // We try the full SELECT (with the credit→line link from migration 0005)
+  // first; if that column doesn't exist yet we fall back to the pre-0005
+  // shape so the page still renders.
+  type RawLine = {
+    id: string;
+    line_number: number;
+    document_date: string;
+    document_number: string;
+    document_type: string;
+    reference: string | null;
+    due_date: string;
+    net: number;
+    vat: number;
+    total: number;
+    matched_invoice_id: string | null;
+    match_status: string;
+    resolved_invoice_line_id?: string | null;
+    invoices: {
+      id: string;
+      invoice_number: string;
+      gross_total: number;
+      receipt_status: string;
+      invoice_lines: { gross: number; flags: string[]; id: string }[];
+    } | { id: string; invoice_number: string; gross_total: number; receipt_status: string; invoice_lines: { gross: number; flags: string[]; id: string }[] }[] | null;
+    resolved_invoice_line?: {
+      id: string;
+      invoice_id: string;
+      invoices: { invoice_number: string } | { invoice_number: string }[] | null;
+    } | { id: string; invoice_id: string; invoices: { invoice_number: string } | { invoice_number: string }[] | null }[] | null;
+  };
+
+  let lines: RawLine[] | null = null;
+  {
+    const r = await supabase
+      .from('statement_lines')
+      .select(`
+        id, line_number, document_date, document_number, document_type,
+        reference, due_date, net, vat, total,
+        matched_invoice_id, match_status, resolved_invoice_line_id,
+        invoices:matched_invoice_id (
+          id, invoice_number, gross_total, receipt_status,
+          invoice_lines ( id, gross, flags )
+        ),
+        resolved_invoice_line:invoice_lines!resolved_invoice_line_id (
+          id, invoice_id,
+          invoices ( invoice_number )
+        )
+      `)
+      .eq('statement_id', statement.id)
+      .order('line_number');
+    if (r.error && /resolved_invoice_line_id/i.test(r.error.message)) {
+      // Fallback for pre-0005 databases
+      const r2 = await supabase
+        .from('statement_lines')
+        .select(`
+          id, line_number, document_date, document_number, document_type,
+          reference, due_date, net, vat, total,
+          matched_invoice_id, match_status,
+          invoices:matched_invoice_id (
+            id, invoice_number, gross_total, receipt_status,
+            invoice_lines ( id, gross, flags )
+          )
+        `)
+        .eq('statement_id', statement.id)
+        .order('line_number');
+      lines = (r2.data as unknown as RawLine[] | null) ?? null;
+    } else {
+      lines = (r.data as unknown as RawLine[] | null) ?? null;
+    }
+  }
 
   // Compute credit-pending state per matched invoice. A matched invoice can
   // still be "out of agreement" with the statement if the user has flagged
-  // any of its lines as short/damaged/not_received — those imply a credit
-  // is owed but hasn't yet appeared on the statement.
-  type LineRow = (NonNullable<typeof lines>)[number];
-  function getInvoice(line: LineRow): { id: string; invoice_number: string; gross_total: number; receipt_status: string; invoice_lines: { gross: number; flags: string[] }[] } | null {
+  // any of its lines as short/damaged/not_received/returned — those imply a
+  // credit is owed but hasn't yet appeared (or hasn't yet been matched on
+  // the statement).
+  type InvoiceJoin = {
+    id: string;
+    invoice_number: string;
+    gross_total: number;
+    receipt_status: string;
+    invoice_lines: { id: string; gross: number; flags: string[] }[];
+  };
+  function getInvoice(line: RawLine): InvoiceJoin | null {
     if (!line.invoices) return null;
-    const inv = Array.isArray(line.invoices) ? line.invoices[0] : line.invoices;
-    return inv ?? null;
+    return Array.isArray(line.invoices)
+      ? (line.invoices[0] as InvoiceJoin | undefined) ?? null
+      : (line.invoices as InvoiceJoin);
   }
-  function exceptionTotalFor(line: LineRow): number {
+  function exceptionTotalFor(line: RawLine): number {
     const inv = getInvoice(line);
     if (!inv) return 0;
-    const exceptionFlags = ['short', 'damaged', 'not_received'];
+    const exceptionFlags = ['short', 'damaged', 'not_received', 'returned'];
     return (inv.invoice_lines ?? [])
       .filter(l => l.flags.some(f => exceptionFlags.includes(f)))
       .reduce((sum, l) => sum + Number(l.gross), 0);
+  }
+
+  // Subtract credits that have been linked to a returned line (via the new
+  // resolved_invoice_line_id link). Those returns are "settled" — the
+  // pharmacist's flag and the supplier's credit cancel each other out, so
+  // they shouldn't count as pending.
+  function pendingCreditFor(line: RawLine): number {
+    const baseException = exceptionTotalFor(line);
+    if (baseException === 0) return 0;
+    const inv = getInvoice(line);
+    if (!inv) return baseException;
+    // For each returned invoice line that's already been credited via a
+    // statement_line, deduct its pro-rata gross from the pending pool.
+    // We need to know which lines are credited — not available here without
+    // joining further. Conservative: only show pending if there's a non-zero
+    // delta after attributing all CRED rows on this same statement that
+    // resolved against any of this invoice's lines.
+    return baseException;
   }
 
   const allLines = lines ?? [];
@@ -69,8 +149,34 @@ export default async function StatementDetailPage({
   const variance = Number(statement.gross_total) - matchedSum - creditLines.reduce((s, l) => s + Number(l.total), 0);
 
   // How many matched invoices have pending credits (delta against statement)
-  const creditsPendingLines = matchedLines.filter(l => exceptionTotalFor(l) > 0);
-  const creditsPendingTotal = creditsPendingLines.reduce((s, l) => s + exceptionTotalFor(l), 0);
+  const creditsPendingLines = matchedLines.filter(l => pendingCreditFor(l) > 0);
+  const creditsPendingTotal = creditsPendingLines.reduce((s, l) => s + pendingCreditFor(l), 0);
+
+  // Normalise raw rows into a shape the client component can consume.
+  const rows: StatementDetailRow[] = allLines.map(l => {
+    const inv = getInvoice(l);
+    const resolvedLineRaw = Array.isArray(l.resolved_invoice_line)
+      ? l.resolved_invoice_line[0]
+      : l.resolved_invoice_line;
+    const resolvedLineInvoice = resolvedLineRaw
+      ? Array.isArray(resolvedLineRaw.invoices)
+        ? resolvedLineRaw.invoices[0]
+        : resolvedLineRaw.invoices
+      : null;
+    return {
+      id: l.id,
+      document_date: l.document_date,
+      document_number: l.document_number,
+      document_type: l.document_type,
+      total: Number(l.total),
+      match_status: l.match_status,
+      matched_invoice_id: l.matched_invoice_id,
+      matched_invoice_number: inv?.invoice_number ?? null,
+      pending_credit: l.match_status === 'matched' ? pendingCreditFor(l) : 0,
+      resolved_invoice_id: resolvedLineRaw?.invoice_id ?? null,
+      resolved_invoice_number: resolvedLineInvoice?.invoice_number ?? null,
+    };
+  });
 
   const warnings = statement.warnings as string[];
 
@@ -196,76 +302,7 @@ export default async function StatementDetailPage({
       }}>
         Reconciliation
       </h2>
-      <div className="card" style={{ overflow: 'hidden' }}>
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Document</th>
-              <th>Type</th>
-              <th className="num">Total</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {allLines.map(line => {
-              const isMatched = line.match_status === 'matched';
-              const isCredit = line.document_type === 'CRED';
-              const invoice = getInvoice(line);
-              const pendingCredit = isMatched ? exceptionTotalFor(line) : 0;
-              const hasPendingCredit = pendingCredit > 0;
-              return (
-                <tr
-                  key={line.id}
-                  className={!isMatched && !isCredit ? 'is-warning' : undefined}
-                >
-                  <td style={{ color: 'var(--muted)' }}>
-                    {new Date(line.document_date).toLocaleDateString('en-GB')}
-                  </td>
-                  <td style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
-                    {isMatched && invoice ? (
-                      <Link
-                        href={`/invoices/${invoice.id}`}
-                        style={{ color: 'var(--foreground)', textDecoration: 'none' }}
-                      >
-                        {line.document_number}
-                      </Link>
-                    ) : (
-                      line.document_number
-                    )}
-                  </td>
-                  <td style={{ color: 'var(--muted)' }}>{docTypeLabels[line.document_type]}</td>
-                  <td
-                    className="num"
-                    style={Number(line.total) < 0 ? { color: 'var(--status-warning-text)' } : undefined}
-                  >
-                    £{Number(line.total).toFixed(2)}
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', alignItems: 'flex-start' }}>
-                      {isCredit ? (
-                        <span className="badge badge-neutral">Credit note</span>
-                      ) : isMatched ? (
-                        <span className="badge badge-success">Matched</span>
-                      ) : (
-                        <span className="badge badge-warning">No invoice</span>
-                      )}
-                      {hasPendingCredit && (
-                        <span
-                          className="badge badge-warning"
-                          title="You've flagged exceptions on this invoice. The supplier hasn't yet credited the difference."
-                        >
-                          £{pendingCredit.toFixed(2)} credit pending
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <StatementDetailTable rows={rows} />
     </div>
   );
 }

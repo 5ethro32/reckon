@@ -23,6 +23,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 type DamageDisposition = 'returning' | 'disposed' | 'awaiting' | null;
+type ReturnDisposition = 'damaged' | 'wrong_product' | 'expired' | 'over_ordered' | 'other' | null;
 
 type Line = {
   id: string;
@@ -32,6 +33,7 @@ type Line = {
   pack_size: string | null;
   qty_ordered: number;
   qty_received: number | null;
+  qty_returned: number | null;
   unit_price: number;
   net: number;
   vat_rate: number;
@@ -40,13 +42,16 @@ type Line = {
   flags: string[];
   notes: string | null;
   damage_disposition?: DamageDisposition;
+  return_disposition?: ReturnDisposition;
+  credited_via_statement_line_id?: string | null;
 };
 
-type LineStatus = 'full' | 'short' | 'damaged' | 'none';
+type LineStatus = 'full' | 'short' | 'damaged' | 'returned' | 'none';
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 function getStatus(line: Line): LineStatus {
   if (line.flags.includes('not_received')) return 'none';
+  if (line.flags.includes('returned')) return 'returned';
   if (line.flags.includes('damaged')) return 'damaged';
   if (line.flags.includes('short')) return 'short';
   return 'full';
@@ -56,16 +61,22 @@ const statusLabels: Record<LineStatus, string> = {
   full: 'Received in full',
   short: 'Short',
   damaged: 'Damaged',
+  returned: 'Returned',
   none: 'Not received',
 };
 
 // State dot colour for the status-select (see .status-select in globals.css).
 // We use the badge text colour (the brighter of each pair) so the dot reads
 // clearly on the neutral input background in both light and dark mode.
+//
+// Returned uses the same warning amber as Damaged because both imply an
+// expected credit. We could split colours later if we want returned to feel
+// distinct, but visually they're sister states.
 const statusDotColor: Record<LineStatus, string> = {
   full: 'var(--status-success-text)',
   short: 'var(--status-warning-text)',
   damaged: 'var(--status-warning-text)',
+  returned: 'var(--status-warning-text)',
   none: 'var(--status-critical-text)',
 };
 
@@ -73,6 +84,14 @@ const dispositionLabels: Record<Exclude<DamageDisposition, null>, string> = {
   returning: 'Returning to supplier',
   disposed: 'Disposed of',
   awaiting: 'Awaiting decision',
+};
+
+const returnDispositionLabels: Record<Exclude<ReturnDisposition, null>, string> = {
+  damaged: 'Damaged on arrival',
+  wrong_product: 'Wrong product picked',
+  expired: 'Short-dated / expired',
+  over_ordered: 'Over-ordered',
+  other: 'Other (see note)',
 };
 
 export default function LinesEditor({
@@ -110,7 +129,9 @@ export default function LinesEditor({
     patch: {
       flags?: string[];
       qty_received?: number;
+      qty_returned?: number | null;
       damage_disposition?: DamageDisposition;
+      return_disposition?: ReturnDisposition;
       notes?: string | null;
     }
   ) {
@@ -140,31 +161,48 @@ export default function LinesEditor({
     }
   }
 
-  /** Top-level status change (full / short / damaged / none).
-   *  Sets flags + qty_received in one save. Clears damage_disposition when
-   *  moving away from damaged. */
+  /** Top-level status change (full / short / damaged / returned / none).
+   *  Sets flags + qty_received + qty_returned in one save. Clears
+   *  disposition fields when moving away from their owning state. */
   async function updateStatus(lineId: string, status: LineStatus, qtyReceived?: number) {
     const line = lines.find(l => l.id === lineId);
     if (!line) return;
 
+    // Build the flags list. The schema allows multiple flags per line in
+    // theory, but in practice the UI is single-state, so we keep it simple.
     const flags: string[] =
       status === 'full' ? [] : [status === 'none' ? 'not_received' : status];
 
+    // qty_received logic — what the pharmacist physically holds AFTER any
+    // return is settled.
+    //   full / damaged       → all received
+    //   returned (default full return) → 0 received (since they sent it back)
+    //   short                → user-specified
+    //   none                 → 0
     const newQty =
       status === 'full' || status === 'damaged'
         ? line.qty_ordered
-        : status === 'none'
+        : status === 'none' || status === 'returned'
         ? 0
         : qtyReceived ?? 0;
+
+    // qty_returned: only meaningful when status='returned'. Default to full
+    // qty_ordered (most common case) — user can adjust to a partial return.
+    const newQtyReturned = status === 'returned' ? line.qty_ordered : null;
 
     const patch: Parameters<typeof patchLine>[1] = {
       flags,
       qty_received: newQty,
+      qty_returned: newQtyReturned,
     };
 
-    // Clear disposition when leaving damaged
+    // Clear damage disposition when leaving damaged
     if (status !== 'damaged') {
       patch.damage_disposition = null;
+    }
+    // Clear return disposition when leaving returned
+    if (status !== 'returned') {
+      patch.return_disposition = null;
     }
 
     await patchLine(lineId, patch);
@@ -287,6 +325,8 @@ export default function LinesEditor({
                   }}
                   onQtyCommit={(q) => updateStatus(line.id, 'short', q)}
                   onDispositionChange={(d) => patchLine(line.id, { damage_disposition: d })}
+                  onReturnDispositionChange={(d) => patchLine(line.id, { return_disposition: d })}
+                  onQtyReturnedCommit={(q) => patchLine(line.id, { qty_returned: q })}
                   onNotesChange={(n) => {
                     setLines(prev =>
                       prev.map(l => (l.id === line.id ? { ...l, notes: n } : l))
@@ -358,6 +398,8 @@ function LineRow({
   onQtyChange,
   onQtyCommit,
   onDispositionChange,
+  onReturnDispositionChange,
+  onQtyReturnedCommit,
   onNotesChange,
   onNotesCommit,
 }: {
@@ -369,6 +411,8 @@ function LineRow({
   onQtyChange: (q: number) => void;
   onQtyCommit: (q: number) => void;
   onDispositionChange: (d: DamageDisposition) => void;
+  onReturnDispositionChange: (d: ReturnDisposition) => void;
+  onQtyReturnedCommit: (q: number) => void;
   onNotesChange: (n: string) => void;
   onNotesCommit: (n: string) => void;
 }) {
@@ -408,9 +452,21 @@ function LineRow({
               <option value="full">{statusLabels.full}</option>
               <option value="short">{statusLabels.short}</option>
               <option value="damaged">{statusLabels.damaged}</option>
+              <option value="returned">{statusLabels.returned}</option>
               <option value="none">{statusLabels.none}</option>
             </select>
             <SaveIndicator state={saveState} />
+            {/* Credited-via badge — shows up only when this returned line has
+             * been auto-resolved against a CRED row on a supplier statement.
+             * Reassures the pharmacist that the credit has actually landed. */}
+            {line.credited_via_statement_line_id && (
+              <span
+                className="badge badge-success"
+                title="A credit note for this line has appeared on a supplier statement and been matched to it."
+              >
+                Credited
+              </span>
+            )}
           </div>
         </td>
       </tr>
@@ -441,6 +497,34 @@ function LineRow({
               </label>
             )}
 
+            {status === 'returned' && (
+              <>
+                <label className="exception-followup-control">
+                  <span className="exception-followup-label">Qty returned</span>
+                  <ReturnedQtyInput
+                    line={line}
+                    onCommit={onQtyReturnedCommit}
+                  />
+                </label>
+                <label className="exception-followup-control">
+                  <span className="exception-followup-label">Reason</span>
+                  <select
+                    value={line.return_disposition ?? 'other'}
+                    onChange={e =>
+                      onReturnDispositionChange(e.target.value as Exclude<ReturnDisposition, null>)
+                    }
+                    className="exception-followup-select"
+                  >
+                    <option value="damaged">{returnDispositionLabels.damaged}</option>
+                    <option value="wrong_product">{returnDispositionLabels.wrong_product}</option>
+                    <option value="expired">{returnDispositionLabels.expired}</option>
+                    <option value="over_ordered">{returnDispositionLabels.over_ordered}</option>
+                    <option value="other">{returnDispositionLabels.other}</option>
+                  </select>
+                </label>
+              </>
+            )}
+
             <label className="exception-followup-control" style={{ flex: '1 1 18rem' }}>
               <span className="exception-followup-label">Note</span>
               <input
@@ -459,6 +543,61 @@ function LineRow({
         </tr>
       )}
     </>
+  );
+}
+
+/** Compact qty-returned input for the partial-return case. */
+function ReturnedQtyInput({
+  line,
+  onCommit,
+}: {
+  line: Line;
+  onCommit: (qty: number) => void;
+}) {
+  const [value, setValue] = useState<number>(line.qty_returned ?? line.qty_ordered);
+
+  // Re-sync when the underlying line changes (e.g. after server refresh)
+  useEffect(() => {
+    setValue(line.qty_returned ?? line.qty_ordered);
+  }, [line.qty_returned, line.qty_ordered]);
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem' }}>
+      <input
+        type="number"
+        min={1}
+        max={line.qty_ordered}
+        value={value}
+        onChange={e => {
+          let v = parseInt(e.target.value) || 0;
+          if (v < 1) v = 1;
+          if (v > line.qty_ordered) v = line.qty_ordered;
+          setValue(v);
+        }}
+        onBlur={() => {
+          if (value !== (line.qty_returned ?? line.qty_ordered)) onCommit(value);
+        }}
+        onKeyDown={e => {
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+        }}
+        style={{
+          width: '3.5rem',
+          height: '1.75rem',
+          padding: '0 0.4rem',
+          textAlign: 'right',
+          borderRadius: '0.375rem',
+          border: '1px solid var(--border)',
+          background: 'var(--input-bg)',
+          color: 'var(--foreground)',
+          fontSize: '12px',
+          fontVariantNumeric: 'tabular-nums',
+          fontFamily: 'inherit',
+        }}
+      />
+      <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
+        of {line.qty_ordered}
+      </span>
+    </span>
   );
 }
 

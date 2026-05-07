@@ -148,12 +148,29 @@ async function persistInvoice(
     }, { status: 500 });
   }
 
+  // Retroactive match: ask Postgres to look for any unmatched statement
+  // rows for this exact invoice number on prior statements and resolve
+  // them. If no statement was uploaded yet this is a no-op.
+  // Best-effort — we don't want to fail the upload if the RPC isn't deployed.
+  let retroactivelyMatched = 0;
+  const matchRpc = await supabase.rpc('try_match_unmatched_invoice_rows', {
+    p_pharmacy_id: pharmacyId,
+    p_supplier: invoice.supplier,
+    p_invoice_number: invoice.invoiceNumber,
+    p_invoice_id: invoiceRow.id,
+  });
+  if (!matchRpc.error && typeof matchRpc.data === 'number') {
+    retroactivelyMatched = matchRpc.data;
+  } else if (matchRpc.error) {
+    console.warn('try_match_unmatched_invoice_rows:', matchRpc.error.message);
+  }
+
   return NextResponse.json({
     ok: true,
     documentId: invoiceRow.id,
     kind: 'invoice',
     supplier: invoice.supplier,
-    summary: `${invoice.supplier.toUpperCase()} invoice ${invoice.invoiceNumber} — ${invoice.lines.length} lines, £${invoice.grossTotal.toFixed(2)}`,
+    summary: `${invoice.supplier.toUpperCase()} invoice ${invoice.invoiceNumber} — ${invoice.lines.length} lines, £${invoice.grossTotal.toFixed(2)}${retroactivelyMatched > 0 ? ` (matched ${retroactivelyMatched} prior statement row${retroactivelyMatched === 1 ? '' : 's'})` : ''}`,
   });
 }
 
@@ -342,6 +359,28 @@ async function persistStatement(
     }
   }
 
+  // Second-pass matching: each CRED row that didn't already resolve a
+  // credit_request gets a chance to match an open returned invoice line
+  // (line-level credit reconciliation). RPC is idempotent — does nothing
+  // if already linked. Best-effort, doesn't fail the upload.
+  let creditsLineMatched = 0;
+  if (insertedLines) {
+    const credLines = insertedLines.filter(
+      l => l.document_type === 'CRED' && !l.resolved_credit_request_id
+    );
+    for (const cl of credLines) {
+      const { data: matchId, error: rpcError } = await supabase.rpc(
+        'try_match_credit_row_to_returned_line',
+        { p_statement_line_id: cl.id }
+      );
+      if (rpcError) {
+        console.warn('try_match_credit_row_to_returned_line:', rpcError.message);
+      } else if (matchId) {
+        creditsLineMatched++;
+      }
+    }
+  }
+
   // Update statement rollup counts
   await supabase
     .from('statements')
@@ -356,6 +395,6 @@ async function persistStatement(
     documentId: statementRow.id,
     kind: 'statement',
     supplier: statement.supplier,
-    summary: `${statement.supplier.toUpperCase()} statement ${statement.statementDate} — ${statement.rows.length} rows (${matched} matched, ${creditsResolved} credits resolved), £${statement.totals.total.toFixed(2)}`,
+    summary: `${statement.supplier.toUpperCase()} statement ${statement.statementDate} — ${statement.rows.length} rows (${matched} matched, ${creditsResolved + creditsLineMatched} credits resolved), £${statement.totals.total.toFixed(2)}`,
   });
 }
