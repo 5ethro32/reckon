@@ -379,6 +379,46 @@ export default async function StatementDetailPage({
       }}>
         Reconciliation
       </h2>
+
+      {/* Explainer banner — surfaces when there's a meaningful unmatched
+       * gap. Turns "Unmatched: 93" from a scary number into a clear
+       * next-action: drag in more invoice PDFs. Only renders if more
+       * than a quarter of the rows are unmatched. */}
+      {unmatchedLines.length > 0 && allLines.length > 0 &&
+       (unmatchedLines.length / allLines.length) > 0.25 && (
+        <div
+          role="note"
+          style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '0.625rem',
+            padding: '0.75rem 0.875rem',
+            marginBottom: '0.875rem',
+            background: 'var(--brand-soft)',
+            border: '1px solid var(--border)',
+            borderRadius: '0.5rem',
+            fontSize: '12px',
+            lineHeight: 1.5,
+          }}
+        >
+          <span aria-hidden style={{ color: 'var(--brand)', fontSize: '14px', lineHeight: 1, marginTop: '0.0625rem' }}>
+            ℹ
+          </span>
+          <span style={{ color: 'var(--foreground)' }}>
+            <strong style={{ fontWeight: 500 }}>
+              {unmatchedLines.length} of {allLines.length} statement rows have no matching invoice yet.
+            </strong>{' '}
+            <span style={{ color: 'var(--muted)' }}>
+              Reckon can only reconcile rows where the invoice has been uploaded.{' '}
+              <Link href="/upload" style={{ color: 'var(--brand)', textDecoration: 'none', fontWeight: 500 }}>
+                Drop more PDFs in
+              </Link>{' '}
+              and the matched count will climb automatically.
+            </span>
+          </span>
+        </div>
+      )}
+
       <StatementDetailTable rows={rows} />
     </div>
   );
