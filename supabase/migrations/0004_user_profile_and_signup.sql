@@ -3,14 +3,12 @@
 --
 -- Adds:
 --   1. pharmacy_memberships.display_name — user's preferred name
---                                          (e.g. "Stuart Burns")
 --   2. pharmacy_memberships.onboarded_at  — null until first-login modal done
 --   3. helper RPC: setup_new_pharmacy(name) — atomically creates a pharmacy
 --      and a membership for the calling user. Used by the self-serve signup
 --      flow when a magic-link auth lands without an existing membership.
 --
--- Apply via SQL editor:
---   https://supabase.com/dashboard/project/kvsipdhtsgibavcvxgqx/sql/new
+-- Apply via the Supabase SQL editor for your project.
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------

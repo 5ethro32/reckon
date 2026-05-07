@@ -26,7 +26,7 @@ create index if not exists idx_memberships_user on public.pharmacy_memberships(u
 create table if not exists public.invoices (
   id                  uuid primary key default gen_random_uuid(),
   pharmacy_id         uuid not null references public.pharmacies(id) on delete cascade,
-  supplier            text not null check (supplier in ('aah', 'aver', 'phoenix', 'alliance', 'ethigen', 'numark')),
+  supplier            text not null,
   invoice_number      text not null,
   invoice_date        date not null,
   due_date            date,
@@ -80,7 +80,7 @@ create index if not exists idx_invoice_lines_pharmacy on public.invoice_lines(ph
 create table if not exists public.statements (
   id                  uuid primary key default gen_random_uuid(),
   pharmacy_id         uuid not null references public.pharmacies(id) on delete cascade,
-  supplier            text not null check (supplier in ('aah', 'aver', 'phoenix', 'alliance', 'ethigen', 'numark')),
+  supplier            text not null,
   statement_date      date not null,
   customer_account    text,
   customer_name       text,

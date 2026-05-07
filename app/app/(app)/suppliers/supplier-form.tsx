@@ -139,7 +139,7 @@ export default function SupplierForm({ contact }: { contact: SupplierContact }) 
           <textarea
             className="input"
             value={values.signature ?? ''}
-            placeholder={'Thanks,\nStuart Burns'}
+            placeholder={'Thanks,\nSarah'}
             onChange={e => handleChange('signature', e.target.value)}
             onBlur={e => commit('signature', e.target.value)}
             rows={3}

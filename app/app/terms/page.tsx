@@ -5,6 +5,7 @@
  * the trust pages feel like a coherent set.
  */
 import Link from 'next/link';
+import { CONTACT_EMAIL } from '@/lib/contact';
 
 export default function TermsPage() {
   return (
@@ -126,7 +127,7 @@ export default function TermsPage() {
         <h2 style={h2Style}>Contact</h2>
         <p style={bodyStyle}>
           Questions? Email{' '}
-          <a href="mailto:jethrogoldsmith@gmail.com">jethrogoldsmith@gmail.com</a>.
+          <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.
         </p>
 
         <p

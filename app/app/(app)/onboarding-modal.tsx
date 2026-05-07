@@ -188,7 +188,7 @@ export default function OnboardingModal({
               id="ob-display-name"
               className="input"
               type="text"
-              placeholder="e.g. Stuart Burns"
+              placeholder="e.g. Sarah Smith"
               autoComplete="name"
               autoFocus
               maxLength={120}
@@ -212,7 +212,7 @@ export default function OnboardingModal({
               id="ob-pharmacy-name"
               className="input"
               type="text"
-              placeholder="e.g. Burns Pharmacy Group"
+              placeholder="e.g. High Street Pharmacy"
               autoComplete="organization"
               maxLength={200}
               value={pharmacyName}

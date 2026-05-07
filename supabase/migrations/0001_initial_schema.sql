@@ -5,8 +5,7 @@
 -- Every business table carries a pharmacy_id and is gated by RLS so a user
 -- can only see rows for pharmacies they belong to.
 --
--- Run this in the Supabase SQL editor:
---   https://supabase.com/dashboard/project/kvsipdhtsgibavcvxgqx/sql/new
+-- Run this in the Supabase SQL editor for your project.
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
@@ -64,7 +63,7 @@ create table if not exists public.invoices (
   pharmacy_id         uuid not null references public.pharmacies(id) on delete cascade,
 
   -- Identity (from parser)
-  supplier            text not null check (supplier in ('aah', 'aver', 'phoenix', 'alliance', 'ethigen', 'numark')),
+  supplier            text not null,
   invoice_number      text not null,
   invoice_date        date not null,
   due_date            date,
@@ -140,7 +139,7 @@ create table if not exists public.statements (
   id                  uuid primary key default gen_random_uuid(),
   pharmacy_id         uuid not null references public.pharmacies(id) on delete cascade,
 
-  supplier            text not null check (supplier in ('aah', 'aver', 'phoenix', 'alliance', 'ethigen', 'numark')),
+  supplier            text not null,
   statement_date      date not null,
   customer_account    text,
   customer_name       text,

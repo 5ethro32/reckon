@@ -13,6 +13,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import LogoutButton from '@/app/logout-button';
+import { CONTACT_EMAIL } from '@/lib/contact';
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -98,7 +99,7 @@ function ProfileCard({
             type="text"
             value={displayName}
             onChange={e => setDisplayName(e.target.value)}
-            placeholder="e.g. Stuart Burns"
+            placeholder="e.g. Sarah Smith"
             maxLength={120}
           />
         </div>
@@ -198,7 +199,7 @@ function PharmacyCard({
             type="text"
             value={pharmacyName}
             onChange={e => setPharmacyName(e.target.value)}
-            placeholder="e.g. Burns Pharmacy Group"
+            placeholder="e.g. High Street Pharmacy"
             maxLength={200}
           />
         </div>
@@ -256,7 +257,7 @@ function AccountCard() {
         </div>
         <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0 }}>
           To delete your account or export your data, email{' '}
-          <a href="mailto:jethrogoldsmith@gmail.com">jethrogoldsmith@gmail.com</a>.
+          <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.
         </p>
       </div>
     </div>

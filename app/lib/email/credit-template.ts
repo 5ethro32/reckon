@@ -339,7 +339,7 @@ if (typeof process !== 'undefined' && process.argv[1]?.endsWith('credit-template
     pharmacyName: 'Bannermans Pharmacy',
     accountNumber: 'BAN-0142',
     signature: null,
-    fallbackSignerName: 'jethrogoldsmith@gmail.com',
+    fallbackSignerName: 'pharmacist@example.com',
     totalAmount: 0,
   };
   const sku1 = {

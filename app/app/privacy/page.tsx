@@ -6,6 +6,7 @@
  * data location.
  */
 import Link from 'next/link';
+import { CONTACT_EMAIL, OPERATOR_NAME } from '@/lib/contact';
 
 export default function PrivacyPage() {
   return (
@@ -59,12 +60,12 @@ export default function PrivacyPage() {
 
         <h2 style={h2Style}>Who we are</h2>
         <p style={bodyStyle}>
-          Reckon is operated by Jethro Goldsmith, based in the UK. You can
+          This instance of Reckon is operated by {OPERATOR_NAME}. You can
           reach us at{' '}
-          <a href="mailto:jethrogoldsmith@gmail.com">jethrogoldsmith@gmail.com</a>.
+          <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.
         </p>
         <p style={bodyStyle}>
-          For your data, the pharmacy is the data controller. Jethro Goldsmith
+          For your data, the pharmacy is the data controller; {OPERATOR_NAME}{' '}
           is the data processor.
         </p>
 
@@ -109,7 +110,7 @@ export default function PrivacyPage() {
         <h2 style={h2Style}>Who can access it</h2>
         <ul style={listStyle}>
           <li style={liStyle}>You — through the app.</li>
-          <li style={liStyle}>Jethro Goldsmith (the operator) for support purposes, but only with your explicit permission for any specific support request, or for system maintenance like applying schema migrations.</li>
+          <li style={liStyle}>{OPERATOR_NAME} for support purposes, but only with your explicit permission for any specific support request, or for system maintenance like applying schema migrations.</li>
           <li style={liStyle}>Supabase Inc — they host the database and have technical access, but contractually do not access customer data.</li>
           <li style={liStyle}>Vercel Inc — they host the application code; they do not have access to database contents.</li>
         </ul>
@@ -132,7 +133,7 @@ export default function PrivacyPage() {
         </ul>
         <p style={bodyStyle}>
           To exercise any of these, email{' '}
-          <a href="mailto:jethrogoldsmith@gmail.com">jethrogoldsmith@gmail.com</a>.
+          <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.
           We will respond within 30 days.
         </p>
 
@@ -175,7 +176,7 @@ export default function PrivacyPage() {
         <h2 style={h2Style}>Contact</h2>
         <p style={bodyStyle}>
           Questions, requests, complaints — all welcome. Email{' '}
-          <a href="mailto:jethrogoldsmith@gmail.com">jethrogoldsmith@gmail.com</a>.
+          <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.
         </p>
 
         <p

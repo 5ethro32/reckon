@@ -6,8 +6,7 @@
 --   2. credit_requests   — ledger of credit chase emails sent
 --   3. invoice_lines.credit_request_id — link back from line to its credit ask
 --
--- Apply via SQL editor:
---   https://supabase.com/dashboard/project/kvsipdhtsgibavcvxgqx/sql/new
+-- Apply via the Supabase SQL editor for your project.
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
@@ -16,7 +15,7 @@
 create table if not exists public.supplier_contacts (
   id                  uuid primary key default gen_random_uuid(),
   pharmacy_id         uuid not null references public.pharmacies(id) on delete cascade,
-  supplier            text not null check (supplier in ('aah', 'aver', 'phoenix', 'alliance', 'ethigen', 'numark')),
+  supplier            text not null,                         -- e.g. 'aah', 'phoenix', 'alliance' — user-defined
 
   -- Email contacts
   credit_email        text,                  -- where credit-request emails go
@@ -25,7 +24,7 @@ create table if not exists public.supplier_contacts (
   contact_name        text,                  -- human contact at supplier
 
   -- User signature for emails
-  signature           text,                  -- e.g. "Thanks,\nStuart Burns"
+  signature           text,                  -- appended to credit-request emails
 
   notes               text,
   created_at          timestamptz not null default now(),
@@ -47,7 +46,7 @@ create trigger set_updated_at before update on public.supplier_contacts
 create table if not exists public.credit_requests (
   id                  uuid primary key default gen_random_uuid(),
   pharmacy_id         uuid not null references public.pharmacies(id) on delete cascade,
-  supplier            text not null check (supplier in ('aah', 'aver', 'phoenix', 'alliance', 'ethigen', 'numark')),
+  supplier            text not null,
 
   -- Status machine: draft → sent → resolved | overdue | cancelled
   status              text not null default 'draft' check (status in ('draft', 'sent', 'resolved', 'overdue', 'cancelled')),
@@ -120,18 +119,19 @@ create policy credit_requests_all on public.credit_requests
   with check (public.user_belongs_to_pharmacy(pharmacy_id));
 
 -- ============================================================================
--- Sensible defaults — seed supplier_contacts for known suppliers per pharmacy
+-- Sensible defaults — seed supplier_contacts for major UK wholesalers
 -- ============================================================================
--- Insert one row per supplier per existing pharmacy. User can edit later.
+-- One row per supplier per existing pharmacy. User can edit any of these or
+-- add their own suppliers via the UI.
 insert into public.supplier_contacts (pharmacy_id, supplier, credit_email, accounts_email, contact_name)
 select p.id, s.supplier, s.credit_email, s.accounts_email, s.contact_name
 from public.pharmacies p
 cross join (values
-  ('aah',      'creditrequests@aah.co.uk',     'AAHReceivables@aah.co.uk', null),
-  ('aver',     'accounts@avergenerics.co.uk',  'accounts@avergenerics.co.uk', null),
-  ('phoenix',  'credits@phoenixhc.co.uk',      'accounts@phoenixhc.co.uk', null),
+  ('aah',      'creditrequests@aah.co.uk',          'AAHReceivables@aah.co.uk',          null),
+  ('aver',     'accounts@avergenerics.co.uk',       'accounts@avergenerics.co.uk',       null),
+  ('phoenix',  'credits@phoenixhc.co.uk',           'accounts@phoenixhc.co.uk',          null),
   ('alliance', 'credits@alliance-healthcare.co.uk', 'accounts@alliance-healthcare.co.uk', null),
-  ('ethigen',  null,                           null, null),
-  ('numark',   null,                           null, null)
+  ('ethigen',  null,                                null,                                null),
+  ('numark',   null,                                null,                                null)
 ) as s(supplier, credit_email, accounts_email, contact_name)
 on conflict (pharmacy_id, supplier) do nothing;

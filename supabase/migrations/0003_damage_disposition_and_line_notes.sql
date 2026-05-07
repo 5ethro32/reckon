@@ -11,8 +11,7 @@
 --      fit a structured field ("packaging wet on bottom 3", "expired Mar 26",
 --      "broken vial 3 of 12"). These need to flow into the credit email.
 --
--- Apply via SQL editor:
---   https://supabase.com/dashboard/project/kvsipdhtsgibavcvxgqx/sql/new
+-- Apply via the Supabase SQL editor for your project.
 -- ============================================================================
 
 -- damage_disposition is meaningful only when flags includes 'damaged'.

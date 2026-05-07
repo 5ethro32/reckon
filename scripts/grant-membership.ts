@@ -8,8 +8,8 @@
  *   npx tsx scripts/grant-membership.ts <email> <pharmacy-name> [role]
  *
  * Example:
- *   npx tsx scripts/grant-membership.ts jethrogoldsmith@gmail.com "Reckon Test Pharmacy"
- *   npx tsx scripts/grant-membership.ts stuart@burnspharmacy.co.uk "Burns Pharmacy Group" owner
+ *   npx tsx scripts/grant-membership.ts user@example.com "Acme Pharmacy"
+ *   npx tsx scripts/grant-membership.ts owner@example.com "High Street Pharmacy" owner
  *
  * The user MUST have signed in at least once before this runs (so they have
  * an auth.users row). Otherwise this will fail with "user not found".

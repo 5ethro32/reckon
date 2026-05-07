@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import LogoutButton from '../logout-button';
+import { CONTACT_EMAIL } from '@/lib/contact';
 
 export default async function NoAccessPage() {
   const supabase = await createClient();
@@ -64,7 +65,7 @@ export default async function NoAccessPage() {
           </p>
           <p style={{ fontSize: '13px', color: 'var(--muted)', margin: 0, marginBottom: '1.5rem', lineHeight: 1.5 }}>
             Please try signing in again. If the problem persists, email{' '}
-            <a href="mailto:jethrogoldsmith@gmail.com">jethrogoldsmith@gmail.com</a>.
+            <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.
           </p>
           <LogoutButton variant="standalone" />
         </div>

@@ -1,10 +1,10 @@
 # Supabase migrations
 
-Schema-as-code for the Reckon Supabase project (`kvsipdhtsgibavcvxgqx`).
+Schema-as-code for the Reckon Supabase project.
 
 ## Apply a migration
 
-1. Open the [SQL editor](https://supabase.com/dashboard/project/kvsipdhtsgibavcvxgqx/sql/new)
+1. Open the SQL editor in your Supabase dashboard
 2. Paste the contents of the next pending file from `migrations/`
 3. Click **Run**
 4. Confirm no errors in the output panel
@@ -12,6 +12,9 @@ Schema-as-code for the Reckon Supabase project (`kvsipdhtsgibavcvxgqx`).
 ## Files
 
 - `0001_initial_schema.sql` — pharmacies, invoices, invoice_lines, statements, statement_lines, RLS, storage bucket
+- `0002_credits_and_suppliers.sql` — supplier_contacts and credit_requests
+- `0003_damage_disposition_and_line_notes.sql` — damaged-line workflow fields
+- `0004_user_profile_and_signup.sql` — onboarding RPCs and self-serve signup
 
 ## Conventions
 

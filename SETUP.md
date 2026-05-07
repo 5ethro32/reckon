@@ -1,6 +1,6 @@
 # Self-host setup
 
-This guide walks you through running your own copy of Reckon. **It requires technical comfort with command-line tools, Supabase, and Vercel.** If that sounds like a lot, just use the hosted version at [reckon.vercel.app](https://reckon.vercel.app) — it's free.
+This guide walks you through running your own copy of Reckon. **It requires technical comfort with command-line tools, Supabase, and Vercel.**
 
 ## Prerequisites
 
@@ -47,12 +47,11 @@ If any migration errors with "already exists", that's fine — they're idempoten
 ### Configure auth
 
 1. In your Supabase dashboard, go to **Authentication → Providers**.
-2. Disable Email/Password (we only use magic links).
-3. Make sure **Email** provider is enabled with magic link enabled.
-4. Go to **Authentication → URL Configuration**.
-5. Set **Site URL** to your eventual production URL (e.g. `https://your-reckon.vercel.app`).
-6. Add your local URL to **Redirect URLs**: `http://localhost:3000/auth/callback`.
-7. After deploying, also add `https://your-reckon.vercel.app/auth/callback` to **Redirect URLs**.
+2. Make sure the **Email** provider is enabled with both magic link and password sign-in.
+3. Go to **Authentication → URL Configuration**.
+4. Set **Site URL** to your eventual production URL (e.g. `https://your-reckon.vercel.app`).
+5. Add your local URL to **Redirect URLs**: `http://localhost:3000/auth/callback`.
+6. After deploying, also add `https://your-reckon.vercel.app/auth/callback` to **Redirect URLs**.
 
 ## 4. Configure environment variables
 
@@ -103,4 +102,4 @@ In Vercel, go to your project settings → Domains, then add your domain. Vercel
 
 ## Stuck?
 
-Open an issue on GitHub or email jethrogoldsmith@gmail.com.
+Open an issue on GitHub.
