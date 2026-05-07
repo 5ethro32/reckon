@@ -1,0 +1,47 @@
+name: Bug report
+description: Something isn't working the way it should.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please don't include real invoice
+        contents, account numbers, or patient data in this issue — it's
+        public. See [CONTRIBUTING.md](../CONTRIBUTING.md) for guidance.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe what went wrong in plain English.
+      placeholder: e.g. I uploaded a Phoenix invoice and the totals at the bottom didn't match.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+      placeholder: e.g. The parsed total should match the printed total on the PDF.
+    validations:
+      required: true
+  - type: input
+    id: page
+    attributes:
+      label: Which page were you on?
+      placeholder: e.g. /invoices/abcd-1234
+  - type: input
+    id: browser
+    attributes:
+      label: What browser?
+      placeholder: e.g. Chrome 130 on Windows 11
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot (optional)
+      description: Drag and drop or paste an image. Redact any personal or invoice data first.
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        Tip — once submitted, you can comment `@claude` to invoke the
+        AI agent, which may take a look and open a fix as a pull request.

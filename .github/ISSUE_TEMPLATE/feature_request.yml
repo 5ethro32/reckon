@@ -1,0 +1,23 @@
+name: Feature request
+description: Suggest a feature or improvement.
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      placeholder: e.g. I have to manually copy account numbers when emailing credit chases.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: How would you like it to work?
+      placeholder: e.g. Auto-fill the account number from supplier settings.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Anything you've already tried?
