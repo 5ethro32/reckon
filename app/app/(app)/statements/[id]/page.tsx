@@ -42,40 +42,80 @@ export default async function StatementDetailPage({
     matched_invoice_id: string | null;
     match_status: string;
     resolved_invoice_line_id?: string | null;
+    resolved_credit_request_id?: string | null;
     invoices: {
       id: string;
       invoice_number: string;
       gross_total: number;
       receipt_status: string;
-      invoice_lines: { gross: number; flags: string[]; id: string }[];
-    } | { id: string; invoice_number: string; gross_total: number; receipt_status: string; invoice_lines: { gross: number; flags: string[]; id: string }[] }[] | null;
+      invoice_lines: {
+        id: string;
+        gross: number;
+        flags: string[];
+        credited_via_statement_line_id?: string | null;
+        credit_request_id?: string | null;
+      }[];
+    } | {
+      id: string;
+      invoice_number: string;
+      gross_total: number;
+      receipt_status: string;
+      invoice_lines: {
+        id: string;
+        gross: number;
+        flags: string[];
+        credited_via_statement_line_id?: string | null;
+        credit_request_id?: string | null;
+      }[];
+    }[] | null;
     resolved_invoice_line?: {
       id: string;
       invoice_id: string;
       invoices: { invoice_number: string } | { invoice_number: string }[] | null;
     } | { id: string; invoice_id: string; invoices: { invoice_number: string } | { invoice_number: string }[] | null }[] | null;
+    resolved_credit_request?: {
+      id: string;
+      total_amount: number;
+      invoice_lines: { invoices: { invoice_number: string } | { invoice_number: string }[] | null }[];
+    } | { id: string; total_amount: number; invoice_lines: { invoices: { invoice_number: string } | { invoice_number: string }[] | null }[] }[] | null;
   };
 
   let lines: RawLine[] | null = null;
   {
+    // Pull everything we need to compute pending credit accurately:
+    //   - each matched invoice's lines + their credit_request_id +
+    //     credited_via_statement_line_id (so we can filter out resolved ones)
+    //   - each CRED row's resolved_credit_request_id (to surface in UI)
+    //   - the linked credit_request's invoice numbers (so we can show
+    //     "Resolved → 41489885W" sub-badge on the CRED row)
     const r = await supabase
       .from('statement_lines')
       .select(`
         id, line_number, document_date, document_number, document_type,
         reference, due_date, net, vat, total,
-        matched_invoice_id, match_status, resolved_invoice_line_id,
+        matched_invoice_id, match_status,
+        resolved_invoice_line_id, resolved_credit_request_id,
         invoices:matched_invoice_id (
           id, invoice_number, gross_total, receipt_status,
-          invoice_lines ( id, gross, flags )
+          invoice_lines (
+            id, gross, flags,
+            credited_via_statement_line_id, credit_request_id
+          )
         ),
         resolved_invoice_line:invoice_lines!resolved_invoice_line_id (
           id, invoice_id,
           invoices ( invoice_number )
+        ),
+        resolved_credit_request:credit_requests!resolved_credit_request_id (
+          id, total_amount,
+          invoice_lines:invoice_lines!credit_request_id (
+            invoices ( invoice_number )
+          )
         )
       `)
       .eq('statement_id', statement.id)
       .order('line_number');
-    if (r.error && /resolved_invoice_line_id/i.test(r.error.message)) {
+    if (r.error && /resolved_invoice_line_id|credited_via_statement_line_id/i.test(r.error.message)) {
       // Fallback for pre-0005 databases
       const r2 = await supabase
         .from('statement_lines')
@@ -83,9 +123,10 @@ export default async function StatementDetailPage({
           id, line_number, document_date, document_number, document_type,
           reference, due_date, net, vat, total,
           matched_invoice_id, match_status,
+          resolved_credit_request_id,
           invoices:matched_invoice_id (
             id, invoice_number, gross_total, receipt_status,
-            invoice_lines ( id, gross, flags )
+            invoice_lines ( id, gross, flags, credit_request_id )
           )
         `)
         .eq('statement_id', statement.id)
@@ -96,49 +137,67 @@ export default async function StatementDetailPage({
     }
   }
 
-  // Compute credit-pending state per matched invoice. A matched invoice can
-  // still be "out of agreement" with the statement if the user has flagged
-  // any of its lines as short/damaged/not_received/returned — those imply a
-  // credit is owed but hasn't yet appeared (or hasn't yet been matched on
-  // the statement).
+  // Compute credit-pending state per matched invoice.
+  //
+  // A line is *truly pending* (the supplier still owes us a credit) when:
+  //   - it has an exception flag (short/damaged/not_received/returned), AND
+  //   - it has NOT been credited via a statement row directly
+  //     (credited_via_statement_line_id is null), AND
+  //   - it is NOT attached to a credit_request that has been resolved
+  //
+  // We need to cross-reference invoice_lines against credit_requests
+  // resolved on this same statement. Build a set of credit_request_ids
+  // that ARE resolved on this statement, then exclude lines whose
+  // credit_request_id is in that set.
+  type InvoiceLine = {
+    id: string;
+    gross: number;
+    flags: string[];
+    credited_via_statement_line_id?: string | null;
+    credit_request_id?: string | null;
+  };
   type InvoiceJoin = {
     id: string;
     invoice_number: string;
     gross_total: number;
     receipt_status: string;
-    invoice_lines: { id: string; gross: number; flags: string[] }[];
+    invoice_lines: InvoiceLine[];
   };
+
   function getInvoice(line: RawLine): InvoiceJoin | null {
     if (!line.invoices) return null;
     return Array.isArray(line.invoices)
       ? (line.invoices[0] as InvoiceJoin | undefined) ?? null
       : (line.invoices as InvoiceJoin);
   }
-  function exceptionTotalFor(line: RawLine): number {
+
+  // Build a set of credit_request_ids resolved on THIS statement (or any
+  // earlier statement we know about — but we only have access to this
+  // statement's CRED rows here, and a credit_request can only resolve once,
+  // so this is sufficient for the on-page calculation).
+  const resolvedCreditRequestIds = new Set<string>();
+  for (const l of lines ?? []) {
+    if (l.resolved_credit_request_id) resolvedCreditRequestIds.add(l.resolved_credit_request_id);
+  }
+
+  function pendingCreditFor(line: RawLine): number {
     const inv = getInvoice(line);
     if (!inv) return 0;
     const exceptionFlags = ['short', 'damaged', 'not_received', 'returned'];
     return (inv.invoice_lines ?? [])
-      .filter(l => l.flags.some(f => exceptionFlags.includes(f)))
+      .filter(l => {
+        // Must have an exception flag
+        if (!l.flags.some(f => exceptionFlags.includes(f))) return false;
+        // If already credited via a statement row directly, not pending
+        if (l.credited_via_statement_line_id) return false;
+        // If linked to a credit_request that's been resolved on this
+        // statement, also not pending
+        if (l.credit_request_id && resolvedCreditRequestIds.has(l.credit_request_id)) {
+          return false;
+        }
+        return true;
+      })
       .reduce((sum, l) => sum + Number(l.gross), 0);
-  }
-
-  // Subtract credits that have been linked to a returned line (via the new
-  // resolved_invoice_line_id link). Those returns are "settled" — the
-  // pharmacist's flag and the supplier's credit cancel each other out, so
-  // they shouldn't count as pending.
-  function pendingCreditFor(line: RawLine): number {
-    const baseException = exceptionTotalFor(line);
-    if (baseException === 0) return 0;
-    const inv = getInvoice(line);
-    if (!inv) return baseException;
-    // For each returned invoice line that's already been credited via a
-    // statement_line, deduct its pro-rata gross from the pending pool.
-    // We need to know which lines are credited — not available here without
-    // joining further. Conservative: only show pending if there's a non-zero
-    // delta after attributing all CRED rows on this same statement that
-    // resolved against any of this invoice's lines.
-    return baseException;
   }
 
   const allLines = lines ?? [];
@@ -163,6 +222,22 @@ export default async function StatementDetailPage({
         ? resolvedLineRaw.invoices[0]
         : resolvedLineRaw.invoices
       : null;
+
+    // For CRED rows resolved against a credit_request, pull out the first
+    // invoice number on that credit_request — most credit requests cover
+    // a single invoice in practice; if multi-invoice we just show the
+    // first as the primary link.
+    const resolvedCRRaw = Array.isArray(l.resolved_credit_request)
+      ? l.resolved_credit_request[0]
+      : l.resolved_credit_request;
+    const resolvedCRInvoiceNumber: string | null = (() => {
+      if (!resolvedCRRaw) return null;
+      const firstLine = resolvedCRRaw.invoice_lines?.[0];
+      if (!firstLine) return null;
+      const inv = Array.isArray(firstLine.invoices) ? firstLine.invoices[0] : firstLine.invoices;
+      return inv?.invoice_number ?? null;
+    })();
+
     return {
       id: l.id,
       document_date: l.document_date,
@@ -175,6 +250,8 @@ export default async function StatementDetailPage({
       pending_credit: l.match_status === 'matched' ? pendingCreditFor(l) : 0,
       resolved_invoice_id: resolvedLineRaw?.invoice_id ?? null,
       resolved_invoice_number: resolvedLineInvoice?.invoice_number ?? null,
+      resolved_credit_request_id: l.resolved_credit_request_id ?? null,
+      resolved_credit_request_invoice_number: resolvedCRInvoiceNumber,
     };
   });
 

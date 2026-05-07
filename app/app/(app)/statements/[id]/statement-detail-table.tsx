@@ -36,8 +36,19 @@ export type StatementDetailRow = {
   matched_invoice_id: string | null;
   matched_invoice_number: string | null;
   pending_credit: number;            // 0 if no pending credit on this matched invoice
-  resolved_invoice_id: string | null; // for CRED rows, the invoice the credit was for
+
+  // CRED-row resolution paths. A credit row may resolve via:
+  //   (a) line-level link (resolved_invoice_line_id) — when a returned
+  //       invoice line was auto-matched; we surface the linked invoice's
+  //       number for a clickable sub-badge.
+  //   (b) credit_request link (resolved_credit_request_id) — when the
+  //       pharmacist generated a credit request that the credit settled.
+  //       We surface the invoice number(s) the credit request covered.
+  // Either or both may be set; if both, we prefer (a) for the link target.
+  resolved_invoice_id: string | null;
   resolved_invoice_number: string | null;
+  resolved_credit_request_id: string | null;
+  resolved_credit_request_invoice_number: string | null;
 };
 
 export default function StatementDetailTable({ rows }: { rows: StatementDetailRow[] }) {
@@ -148,6 +159,22 @@ export default function StatementDetailTable({ rows }: { rows: StatementDetailRo
                         >
                           Linked → {row.resolved_invoice_number}
                         </Link>
+                      )}
+
+                      {/* Sub-badge: credit note resolved a credit_request the
+                       * pharmacist had previously generated. Different from
+                       * the line-level link above — this means the user
+                       * explicitly chased the credit; supplier paid it via
+                       * this credit note. */}
+                      {isCredit && !creditLinked && row.resolved_credit_request_id && (
+                        <span
+                          className="badge badge-success"
+                          title="This credit note settles a credit request you generated."
+                        >
+                          {row.resolved_credit_request_invoice_number
+                            ? `Resolved → ${row.resolved_credit_request_invoice_number}`
+                            : 'Resolved'}
+                        </span>
                       )}
                     </div>
                   </td>
