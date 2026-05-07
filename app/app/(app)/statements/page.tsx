@@ -1,16 +1,21 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
-
-const supplierLabels: Record<string, string> = {
-  aah: 'AAH', aver: 'Aver', phoenix: 'Phoenix',
-  alliance: 'Alliance', ethigen: 'Ethigen', numark: 'Numark',
-};
+import StatementsList from './statements-list';
 
 export default async function StatementsPage() {
   const supabase = await createClient();
   const { data: statements, error } = await supabase
     .from('statements')
-    .select('id, supplier, statement_date, gross_total, reconciled_count, unreconciled_count, totals_match')
+    .select(`
+      id, supplier, statement_date, gross_total,
+      reconciled_count, unreconciled_count, totals_match,
+      statement_lines (
+        match_status,
+        invoices:matched_invoice_id (
+          invoice_lines ( gross, flags )
+        )
+      )
+    `)
     .is('deleted_at', null)
     .order('statement_date', { ascending: false });
 
@@ -21,6 +26,31 @@ export default async function StatementsPage() {
   if (!statements || statements.length === 0) {
     return <EmptyState />;
   }
+
+  // Roll up per-statement credits-pending so the list page can show it.
+  const exceptionFlags = ['short', 'damaged', 'not_received'];
+  const rows = statements.map(s => {
+    const matched = (s.statement_lines ?? []).filter(l => l.match_status === 'matched');
+    let creditsPending = 0;
+    for (const line of matched) {
+      const inv = Array.isArray(line.invoices) ? line.invoices[0] : line.invoices;
+      if (!inv) continue;
+      for (const il of inv.invoice_lines ?? []) {
+        if (il.flags.some((f: string) => exceptionFlags.includes(f))) {
+          creditsPending += Number(il.gross);
+        }
+      }
+    }
+    return {
+      id: s.id,
+      supplier: s.supplier,
+      statement_date: s.statement_date,
+      gross_total: Number(s.gross_total),
+      reconciled_count: s.reconciled_count,
+      unreconciled_count: s.unreconciled_count,
+      credits_pending: creditsPending,
+    };
+  });
 
   return (
     <div>
@@ -34,47 +64,7 @@ export default async function StatementsPage() {
         <Link href="/upload" className="btn btn-secondary">Upload PDFs</Link>
       </div>
 
-      <div className="card" style={{ overflow: 'hidden' }}>
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Supplier</th>
-              <th>Statement date</th>
-              <th className="num">Total</th>
-              <th>Matched</th>
-            </tr>
-          </thead>
-          <tbody>
-            {statements.map(s => {
-              const total = s.reconciled_count + s.unreconciled_count;
-              const allMatched = s.unreconciled_count === 0;
-              const href = `/statements/${s.id}`;
-              return (
-                <tr key={s.id} style={{ cursor: 'pointer' }}>
-                  <td>
-                    <Link href={href} className="row-link" style={{ color: 'var(--muted)' }}>
-                      {supplierLabels[s.supplier] ?? s.supplier}
-                    </Link>
-                  </td>
-                  <td style={{ fontWeight: 500 }}>
-                    <Link href={href} className="row-link">
-                      {new Date(s.statement_date).toLocaleDateString('en-GB')}
-                    </Link>
-                  </td>
-                  <td className="num" style={{ fontWeight: 500 }}>
-                    £{Number(s.gross_total).toFixed(2)}
-                  </td>
-                  <td>
-                    <span className={allMatched ? 'badge badge-success' : 'badge badge-warning'}>
-                      {s.reconciled_count} / {total}
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <StatementsList rows={rows} />
     </div>
   );
 }

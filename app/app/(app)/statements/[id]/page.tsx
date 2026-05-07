@@ -34,10 +34,32 @@ export default async function StatementDetailPage({
       id, line_number, document_date, document_number, document_type,
       reference, due_date, net, vat, total,
       matched_invoice_id, match_status,
-      invoices:matched_invoice_id ( id, invoice_number, gross_total, receipt_status )
+      invoices:matched_invoice_id (
+        id, invoice_number, gross_total, receipt_status,
+        invoice_lines ( gross, flags )
+      )
     `)
     .eq('statement_id', statement.id)
     .order('line_number');
+
+  // Compute credit-pending state per matched invoice. A matched invoice can
+  // still be "out of agreement" with the statement if the user has flagged
+  // any of its lines as short/damaged/not_received — those imply a credit
+  // is owed but hasn't yet appeared on the statement.
+  type LineRow = (NonNullable<typeof lines>)[number];
+  function getInvoice(line: LineRow): { id: string; invoice_number: string; gross_total: number; receipt_status: string; invoice_lines: { gross: number; flags: string[] }[] } | null {
+    if (!line.invoices) return null;
+    const inv = Array.isArray(line.invoices) ? line.invoices[0] : line.invoices;
+    return inv ?? null;
+  }
+  function exceptionTotalFor(line: LineRow): number {
+    const inv = getInvoice(line);
+    if (!inv) return 0;
+    const exceptionFlags = ['short', 'damaged', 'not_received'];
+    return (inv.invoice_lines ?? [])
+      .filter(l => l.flags.some(f => exceptionFlags.includes(f)))
+      .reduce((sum, l) => sum + Number(l.gross), 0);
+  }
 
   const allLines = lines ?? [];
   const matchedLines = allLines.filter(l => l.match_status === 'matched');
@@ -45,6 +67,10 @@ export default async function StatementDetailPage({
   const creditLines = allLines.filter(l => l.document_type === 'CRED');
   const matchedSum = matchedLines.reduce((s, l) => s + Number(l.total), 0);
   const variance = Number(statement.gross_total) - matchedSum - creditLines.reduce((s, l) => s + Number(l.total), 0);
+
+  // How many matched invoices have pending credits (delta against statement)
+  const creditsPendingLines = matchedLines.filter(l => exceptionTotalFor(l) > 0);
+  const creditsPendingTotal = creditsPendingLines.reduce((s, l) => s + exceptionTotalFor(l), 0);
 
   const warnings = statement.warnings as string[];
 
@@ -128,6 +154,15 @@ export default async function StatementDetailPage({
             color={unmatchedLines.length > 0 ? 'var(--status-warning-text)' : undefined}
           />
           <Stat
+            label="Credits pending"
+            value={
+              creditsPendingLines.length > 0
+                ? `${creditsPendingLines.length} · £${creditsPendingTotal.toFixed(2)}`
+                : '—'
+            }
+            color={creditsPendingLines.length > 0 ? 'var(--status-warning-text)' : undefined}
+          />
+          <Stat
             label="Variance"
             value={`£${variance.toFixed(2)}`}
             color={varianceIsHealthy ? 'var(--status-success-text)' : 'var(--status-warning-text)'}
@@ -176,7 +211,9 @@ export default async function StatementDetailPage({
             {allLines.map(line => {
               const isMatched = line.match_status === 'matched';
               const isCredit = line.document_type === 'CRED';
-              const invoice = Array.isArray(line.invoices) ? line.invoices[0] : line.invoices;
+              const invoice = getInvoice(line);
+              const pendingCredit = isMatched ? exceptionTotalFor(line) : 0;
+              const hasPendingCredit = pendingCredit > 0;
               return (
                 <tr
                   key={line.id}
@@ -205,13 +242,23 @@ export default async function StatementDetailPage({
                     £{Number(line.total).toFixed(2)}
                   </td>
                   <td>
-                    {isCredit ? (
-                      <span className="badge badge-neutral">Credit note</span>
-                    ) : isMatched ? (
-                      <span className="badge badge-success">Matched</span>
-                    ) : (
-                      <span className="badge badge-warning">No invoice</span>
-                    )}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', alignItems: 'flex-start' }}>
+                      {isCredit ? (
+                        <span className="badge badge-neutral">Credit note</span>
+                      ) : isMatched ? (
+                        <span className="badge badge-success">Matched</span>
+                      ) : (
+                        <span className="badge badge-warning">No invoice</span>
+                      )}
+                      {hasPendingCredit && (
+                        <span
+                          className="badge badge-warning"
+                          title="You've flagged exceptions on this invoice. The supplier hasn't yet credited the difference."
+                        >
+                          £{pendingCredit.toFixed(2)} credit pending
+                        </span>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );

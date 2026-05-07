@@ -8,21 +8,7 @@
 
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
-
-const supplierLabels: Record<string, string> = {
-  aah: 'AAH', aver: 'Aver', phoenix: 'Phoenix',
-  alliance: 'Alliance', ethigen: 'Ethigen', numark: 'Numark',
-};
-
-type InvoiceWithLines = {
-  id: string;
-  supplier: string;
-  invoice_number: string;
-  invoice_date: string;
-  gross_total: number;
-  totals_match: boolean;
-  invoice_lines: { flags: string[] }[];
-};
+import InvoicesList, { type InvoiceRow } from './invoices-list';
 
 export default async function InvoicesPage() {
   const supabase = await createClient();
@@ -36,8 +22,24 @@ export default async function InvoicesPage() {
     .order('invoice_date', { ascending: false });
 
   if (error) return <ErrorState message={error.message} />;
-  const invoices = (data ?? []) as InvoiceWithLines[];
-  if (invoices.length === 0) return <EmptyState />;
+  const raw = data ?? [];
+  if (raw.length === 0) return <EmptyState />;
+
+  const rows: InvoiceRow[] = raw.map(inv => {
+    const lineCount = inv.invoice_lines.length;
+    const fullCount = inv.invoice_lines.filter((l: { flags: string[] }) => l.flags.length === 0).length;
+    const exceptionCount = lineCount - fullCount;
+    return {
+      id: inv.id,
+      supplier: inv.supplier,
+      invoice_number: inv.invoice_number,
+      invoice_date: inv.invoice_date,
+      gross_total: Number(inv.gross_total),
+      line_count: lineCount,
+      full_count: fullCount,
+      exception_count: exceptionCount,
+    };
+  });
 
   return (
     <div>
@@ -45,69 +47,13 @@ export default async function InvoicesPage() {
         <div>
           <h1 className="page-header-title">Deliveries</h1>
           <p className="page-header-subtitle">
-            {invoices.length} invoice{invoices.length === 1 ? '' : 's'}
+            {raw.length} invoice{raw.length === 1 ? '' : 's'}
           </p>
         </div>
         <Link href="/upload" className="btn btn-secondary">Upload PDFs</Link>
       </div>
 
-      <div className="card" style={{ overflow: 'hidden' }}>
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Supplier</th>
-              <th>Invoice #</th>
-              <th>Date</th>
-              <th className="num">Total</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {invoices.map(inv => {
-              const lineCount = inv.invoice_lines.length;
-              const fullCount = inv.invoice_lines.filter(l => l.flags.length === 0).length;
-              const exceptionCount = lineCount - fullCount;
-              const allFull = lineCount > 0 && exceptionCount === 0;
-              const label = lineCount === 0
-                ? 'Pending'
-                : allFull
-                ? 'All received'
-                : `${fullCount}/${lineCount} received`;
-              const badgeClass = lineCount === 0
-                ? 'badge badge-neutral'
-                : allFull
-                ? 'badge badge-success'
-                : 'badge badge-warning';
-              const href = `/invoices/${inv.id}`;
-              return (
-                <tr key={inv.id} style={{ cursor: 'pointer' }}>
-                  <td>
-                    <Link href={href} className="row-link" style={{ color: 'var(--muted)' }}>
-                      {supplierLabels[inv.supplier] ?? inv.supplier}
-                    </Link>
-                  </td>
-                  <td style={{ fontWeight: 500 }}>
-                    <Link href={href} className="row-link">
-                      {inv.invoice_number}
-                    </Link>
-                  </td>
-                  <td style={{ color: 'var(--muted)' }}>
-                    <Link href={href} className="row-link" style={{ color: 'inherit' }}>
-                      {new Date(inv.invoice_date).toLocaleDateString('en-GB')}
-                    </Link>
-                  </td>
-                  <td className="num" style={{ fontWeight: 500 }}>
-                    £{Number(inv.gross_total).toFixed(2)}
-                  </td>
-                  <td>
-                    <span className={badgeClass}>{label}</span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <InvoicesList rows={rows} />
     </div>
   );
 }
