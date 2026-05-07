@@ -12,10 +12,34 @@
  */
 
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 const THEME_KEY = 'reckon.theme';
 type Theme = 'light' | 'dark';
+
+// Maps the first path segment to a human page label. Detail pages
+// (/invoices/[id], /statements/[id]) inherit their parent's label —
+// the page heading inside the page itself shows the specific record.
+const PAGE_LABELS: Record<string, string> = {
+  dashboard: 'Dashboard',
+  invoices: 'Deliveries',
+  statements: 'Statements',
+  credits: 'Credits',
+  upload: 'Upload',
+  suppliers: 'Suppliers',
+  settings: 'Settings',
+};
+
+function getPageLabel(pathname: string): { label: string; href: string } | null {
+  const segments = pathname.split('/').filter(Boolean);
+  const first = segments[0];
+  if (!first) return null;
+  const label = PAGE_LABELS[first];
+  if (!label) return null;
+  // For detail routes, the breadcrumb still links back to the parent list.
+  return { label, href: `/${first}` };
+}
 
 export default function Topbar({
   pharmacyName,
@@ -24,6 +48,8 @@ export default function Topbar({
   pharmacyName: string;
   userEmail: string;
 }) {
+  const pathname = usePathname();
+  const page = getPageLabel(pathname);
   const [theme, setTheme] = useState<Theme>('light');
   const [hydrated, setHydrated] = useState(false);
 
@@ -73,23 +99,42 @@ export default function Topbar({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '0.5rem',
+          gap: '0.375rem',
           minWidth: 0,
+          fontSize: '12px',
+          fontWeight: 500,
+          overflow: 'hidden',
         }}
       >
         <span
           style={{
-            fontSize: '12px',
             color: 'var(--muted)',
-            fontWeight: 500,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
+            flexShrink: 1,
+            minWidth: 0,
           }}
           title={pharmacyName}
         >
           {pharmacyName}
         </span>
+        {page && (
+          <>
+            <span aria-hidden style={{ color: 'var(--muted-light)', flexShrink: 0 }}>/</span>
+            <Link
+              href={page.href}
+              style={{
+                color: 'var(--foreground)',
+                textDecoration: 'none',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
+            >
+              {page.label}
+            </Link>
+          </>
+        )}
       </div>
 
       <div

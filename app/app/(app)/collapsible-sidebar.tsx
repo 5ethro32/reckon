@@ -200,12 +200,16 @@ export default function CollapsibleSidebar({
       </div>
 
       {/* ─── Nav ────────────────────────────────────────────────────── */}
+      {/* paddingTop gives the first nav item's hover/active background a
+       * pixel of breathing room — without it the rounded-rectangle highlight
+       * looked clipped at its top edge against the brand-row above. */}
       <nav
         style={{
           display: 'flex',
           flexDirection: 'column',
           gap: '0.125rem',
           flex: 1,
+          paddingTop: '0.25rem',
           overflowY: 'auto',
           overflowX: 'hidden',
         }}

@@ -307,12 +307,12 @@ export default async function DashboardPage() {
           sub={invoices.length === 0 ? 'no invoices yet' : `${reconciledPct}%`}
         />
         <Kpi
-          label="Credit queue"
+          label="Lines to chase"
           value={String(creditQueueCount)}
           sub={
             creditQueueCount === 0
               ? 'nothing flagged'
-              : `£${creditQueueGross.toFixed(2)} to chase`
+              : `£${creditQueueGross.toFixed(2)} across ${creditQueueCount} ${pluralize(creditQueueCount, 'line')}`
           }
         />
         <Kpi
