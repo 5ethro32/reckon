@@ -38,6 +38,7 @@ export default function SettingsForm({
         initialPharmacyName={initialPharmacyName}
         pharmacyId={pharmacyId}
       />
+      <PasswordCard />
       <AccountCard />
     </div>
   );
@@ -237,6 +238,134 @@ function PharmacyCard({
           onClick={handleSave}
         >
           {saveState === 'saving' ? 'Saving…' : 'Save'}
+        </button>
+        <SaveFeedback state={saveState} errorMsg={errorMsg} />
+      </div>
+    </div>
+  );
+}
+
+function PasswordCard() {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [saveState, setSaveState] = useState<SaveState>('idle');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const isFilled =
+    currentPassword.length > 0 && newPassword.length > 0 && confirmPassword.length > 0;
+  const mismatch =
+    confirmPassword.length > 0 && newPassword !== confirmPassword;
+  const tooShort = newPassword.length > 0 && newPassword.length < 8;
+  const sameAsCurrent =
+    newPassword.length > 0 && currentPassword.length > 0 && newPassword === currentPassword;
+  const canSubmit = isFilled && !mismatch && !tooShort && !sameAsCurrent;
+
+  async function handleSave() {
+    if (!canSubmit) return;
+    setSaveState('saving');
+    setErrorMsg(null);
+    try {
+      const res = await fetch('/api/account/password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? `HTTP ${res.status}`);
+      }
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setSaveState('saved');
+      setTimeout(() => setSaveState('idle'), 2000);
+    } catch (err) {
+      setSaveState('error');
+      setErrorMsg(err instanceof Error ? err.message : 'Save failed');
+    }
+  }
+
+  const inlineHint = mismatch
+    ? 'New passwords don’t match'
+    : tooShort
+    ? 'New password must be at least 8 characters'
+    : sameAsCurrent
+    ? 'New password must differ from current'
+    : null;
+
+  return (
+    <div className="card" style={{ padding: '1.25rem' }}>
+      <p className="section-label" style={{ marginBottom: '1rem' }}>
+        Password
+      </p>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+        <div>
+          <label htmlFor="current-password" className="label">
+            Current password
+          </label>
+          <input
+            id="current-password"
+            className="input"
+            type="password"
+            autoComplete="current-password"
+            value={currentPassword}
+            onChange={e => setCurrentPassword(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label htmlFor="new-password" className="label">
+            New password
+          </label>
+          <input
+            id="new-password"
+            className="input"
+            type="password"
+            autoComplete="new-password"
+            minLength={8}
+            value={newPassword}
+            onChange={e => setNewPassword(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label htmlFor="confirm-password" className="label">
+            Confirm new password
+          </label>
+          <input
+            id="confirm-password"
+            className="input"
+            type="password"
+            autoComplete="new-password"
+            value={confirmPassword}
+            onChange={e => setConfirmPassword(e.target.value)}
+          />
+        </div>
+
+        {inlineHint && (
+          <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0 }}>
+            {inlineHint}
+          </p>
+        )}
+      </div>
+
+      <div
+        style={{
+          marginTop: '1.25rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.75rem',
+        }}
+      >
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={!canSubmit || saveState === 'saving'}
+          onClick={handleSave}
+        >
+          {saveState === 'saving' ? 'Updating…' : 'Update password'}
         </button>
         <SaveFeedback state={saveState} errorMsg={errorMsg} />
       </div>
