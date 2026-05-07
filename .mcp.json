@@ -6,7 +6,10 @@
       "args": [
         "-y",
         "@supabase/mcp-server-supabase@latest",
-        "--project-ref=kvsipdhtsgibavcvxgqx"
+        "--project-ref",
+        "kvsipdhtsgibavcvxgqx",
+        "--read-only",
+        "false"
       ],
       "env": {
         "SUPABASE_ACCESS_TOKEN": "${SUPABASE_ACCESS_TOKEN}"
