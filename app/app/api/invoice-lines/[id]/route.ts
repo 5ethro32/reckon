@@ -173,15 +173,17 @@ export async function PATCH(
     );
   }
 
-  // Retroactive match: if the line is now (or remains) in the `returned`
-  // flag state, ask Postgres to look for an open CRED row that resolves it.
-  // The RPC is idempotent — does nothing if the line is already linked.
+  // Retroactive match: any exception flag (short / damaged / returned /
+  // not_received) implies an expected credit. Fire the matcher to look for
+  // an open CRED row on a prior statement that resolves it. The RPC is
+  // idempotent — does nothing if the line is already linked, has a
+  // credit_request, or has no matching CRED amount.
   const flags = update.flags as string[] | undefined;
-  const becameOrStillReturned =
-    Array.isArray(flags) && flags.includes('returned');
+  const exceptionFlags = ['short', 'damaged', 'returned', 'not_received'];
+  const hasException =
+    Array.isArray(flags) && flags.some(f => exceptionFlags.includes(f));
 
-  if (becameOrStillReturned) {
-    // Best-effort — failure here doesn't fail the PATCH.
+  if (hasException) {
     void supabase.rpc('try_match_returned_line_to_credit_row', {
       p_invoice_line_id: id,
     }).then(({ error }) => {
