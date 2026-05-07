@@ -1,0 +1,16 @@
+{
+  "$schema": "https://docs.anthropic.com/claude-code/mcp-schema.json",
+  "mcpServers": {
+    "supabase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@supabase/mcp-server-supabase@latest",
+        "--project-ref=kvsipdhtsgibavcvxgqx"
+      ],
+      "env": {
+        "SUPABASE_ACCESS_TOKEN": "${SUPABASE_ACCESS_TOKEN}"
+      }
+    }
+  }
+}
