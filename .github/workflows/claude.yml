@@ -1,5 +1,14 @@
 name: Claude
 
+# Auto-respond to issues and PR comments using Anthropic's Claude.
+#
+# Cost optimisation:
+#   - Model is Haiku 4.5 by default (~£0.02-£0.06 per issue) — plenty
+#     for read-the-repo questions, parser tweaks, and obvious bug fixes.
+#   - For complex multi-file refactors, comment "@claude --sonnet" on the
+#     issue and the workflow will auto-upgrade for that one run.
+#   - max_turns capped at 15 to stop runaway agent loops early.
+
 on:
   issues:
     types: [opened, assigned]
@@ -29,10 +38,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Pick model
+        id: pick-model
+        run: |
+          BODY="${{ github.event.issue.body }}${{ github.event.comment.body }}${{ github.event.review.body }}"
+          if echo "$BODY" | grep -qiE "(--sonnet|use sonnet|please use sonnet)"; then
+            echo "model=claude-sonnet-4-6" >> $GITHUB_OUTPUT
+            echo "Selected Sonnet (escalation requested)"
+          else
+            echo "model=claude-haiku-4-5" >> $GITHUB_OUTPUT
+            echo "Selected Haiku (default — cheaper)"
+          fi
+
       - name: Run Claude
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          model: claude-sonnet-4-6
-          max_turns: "30"
+          model: ${{ steps.pick-model.outputs.model }}
+          max_turns: "15"
           disallowed_tools: "Bash(rm:*),Bash(git push:*)"
