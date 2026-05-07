@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import CollapsibleSidebar from './collapsible-sidebar';
 import Topbar from './topbar';
 
@@ -27,11 +28,11 @@ export default function AppShell({
   pharmacyName: string;
   children: React.ReactNode;
 }) {
+  const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Read persisted state on mount (avoids hydration mismatch by rendering
-  // expanded-state on first paint, then snapping to persisted value).
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(STORAGE_KEY);
@@ -41,6 +42,21 @@ export default function AppShell({
     }
     setHydrated(true);
   }, []);
+
+  // Close mobile drawer on route change (so tapping a nav link dismisses it).
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
+  // Lock body scroll while the mobile drawer is open — otherwise the page
+  // behind the backdrop scrolls when the user swipes the drawer.
+  useEffect(() => {
+    if (mobileOpen) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => { document.body.style.overflow = prev; };
+    }
+  }, [mobileOpen]);
 
   function toggle() {
     setCollapsed(prev => {
@@ -57,26 +73,41 @@ export default function AppShell({
   const sidebarWidth = collapsed ? '4rem' : '15rem';
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--surface-raised)' }}>
+    <div
+      className="app-shell"
+      data-mobile-open={mobileOpen ? 'true' : 'false'}
+      style={{ minHeight: '100vh', background: 'var(--surface-raised)' }}
+    >
       <CollapsibleSidebar
         collapsed={collapsed}
         onToggle={toggle}
         userEmail={userEmail}
       />
 
+      {/* Backdrop sits between page content (z-auto) and the drawer (z:50).
+       * Tapping it closes the drawer. Only visible when mobile-open via CSS. */}
+      <button
+        type="button"
+        aria-label="Close menu"
+        className="mobile-drawer-backdrop"
+        onClick={() => setMobileOpen(false)}
+      />
+
       <div
+        className="app-main"
         style={{
           marginLeft: sidebarWidth,
           minHeight: '100vh',
           display: 'flex',
           flexDirection: 'column',
-          // Match the sidebar's transition exactly so they move together.
-          // On first paint we suppress transition to avoid a 200ms slide
-          // from 15rem to 4rem if the user had it collapsed.
           transition: hydrated ? 'margin-left 200ms ease' : 'none',
         }}
       >
-        <Topbar pharmacyName={pharmacyName} userEmail={userEmail} />
+        <Topbar
+          pharmacyName={pharmacyName}
+          userEmail={userEmail}
+          onMenuClick={() => setMobileOpen(true)}
+        />
         <main
           style={{
             flex: 1,

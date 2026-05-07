@@ -112,6 +112,7 @@ export default function InvoicesList({ rows }: { rows: InvoiceRow[] }) {
       />
 
       <div className="card" style={{ overflow: 'hidden' }}>
+        <div className="table-scroll">
         <table className="table">
           <thead>
             <tr>
@@ -170,6 +171,7 @@ export default function InvoicesList({ rows }: { rows: InvoiceRow[] }) {
             })}
           </tbody>
         </table>
+        </div>
       </div>
     </>
   );

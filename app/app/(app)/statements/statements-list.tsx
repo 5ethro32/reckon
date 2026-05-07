@@ -114,6 +114,7 @@ export default function StatementsList({ rows }: { rows: StatementRow[] }) {
       />
 
       <div className="card" style={{ overflow: 'hidden' }}>
+        <div className="table-scroll">
         <table className="table">
           <thead>
             <tr>
@@ -169,6 +170,7 @@ export default function StatementsList({ rows }: { rows: StatementRow[] }) {
             })}
           </tbody>
         </table>
+        </div>
       </div>
     </>
   );

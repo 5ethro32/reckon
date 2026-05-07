@@ -284,14 +284,7 @@ export default async function DashboardPage() {
       </header>
 
       {/* ─── KPI Strip ──────────────────────────────────────────── */}
-      <section
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
-          gap: '0.875rem',
-          marginBottom: '1.5rem',
-        }}
-      >
+      <section className="dash-kpi-grid">
         <Kpi
           label="Deliveries today"
           value={String(invoicesToday.length)}
@@ -328,13 +321,7 @@ export default async function DashboardPage() {
       </section>
 
       {/* ─── Two-column body: deliveries (left) + waiting/saved (right) ─ */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '1.6fr 1fr',
-          gap: '1.25rem',
-        }}
-      >
+      <div className="dash-body-grid">
         {/* ─── Today's deliveries ──────────────────────────────── */}
         <section className="card" style={{ overflow: 'hidden' }}>
           <div

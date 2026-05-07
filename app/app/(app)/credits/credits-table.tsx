@@ -173,6 +173,7 @@ function OutstandingSection({ outstanding }: { outstanding: OutstandingRequest[]
         </div>
       ) : (
         <div className="card" style={{ overflow: 'hidden' }}>
+          <div className="table-scroll">
           <table className="table">
             <thead>
               <tr>
@@ -234,6 +235,7 @@ function OutstandingSection({ outstanding }: { outstanding: OutstandingRequest[]
               })}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </section>
@@ -462,6 +464,7 @@ function FlaggedSection({ flagged }: { flagged: FlaggedLine[] }) {
                 Max £{totalGross.toFixed(2)}
               </span>
             </div>
+            <div className="table-scroll">
             <table className="table">
               <thead>
                 <tr>
@@ -530,6 +533,7 @@ function FlaggedSection({ flagged }: { flagged: FlaggedLine[] }) {
                 })}
               </tbody>
             </table>
+            </div>
           </div>
         );
       })}

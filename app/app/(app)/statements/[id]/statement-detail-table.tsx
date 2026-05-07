@@ -80,6 +80,7 @@ export default function StatementDetailTable({ rows }: { rows: StatementDetailRo
       />
 
       <div className="card" style={{ overflow: 'hidden' }}>
+        <div className="table-scroll">
         <table className="table">
           <thead>
             <tr>
@@ -183,6 +184,7 @@ export default function StatementDetailTable({ rows }: { rows: StatementDetailRo
             })}
           </tbody>
         </table>
+        </div>
       </div>
     </>
   );

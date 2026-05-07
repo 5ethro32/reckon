@@ -295,6 +295,7 @@ export default function LinesEditor({
       </div>
 
       <div className="card" style={{ overflow: 'hidden' }}>
+        <div className="table-scroll">
         <table className="table">
           <thead>
             <tr>
@@ -338,6 +339,7 @@ export default function LinesEditor({
             })}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Sticky credit action bar — only when there are exceptions */}
