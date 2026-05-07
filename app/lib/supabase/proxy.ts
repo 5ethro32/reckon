@@ -55,9 +55,10 @@ export async function updateSession(request: NextRequest) {
   // Public routes that don't require auth. '/' IS the login page in this app.
   // /privacy and /terms are public so visitors can read them before signing
   // up. /api/health is public so external uptime monitors can ping without
-  // a session. Anything under /auth/ is also public (callback, confirm) —
-  // those routes establish the session.
-  const publicPaths = ['/', '/no-access', '/privacy', '/terms', '/api/health'];
+  // a session. /forgot is public for password-reset requests. Anything
+  // under /auth/ is also public (callback, confirm, reset) — those routes
+  // establish the session.
+  const publicPaths = ['/', '/no-access', '/privacy', '/terms', '/api/health', '/forgot'];
   const isPublic =
     publicPaths.some(p => path === p) ||
     path.startsWith('/auth/');

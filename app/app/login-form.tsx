@@ -18,6 +18,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 
 type Mode = 'magic' | 'password';
@@ -162,7 +163,26 @@ export default function LoginForm() {
 
       {isPassword && (
         <div>
-          <label htmlFor="password" className="label">Password</label>
+          <div style={{
+            display: 'flex',
+            alignItems: 'baseline',
+            justifyContent: 'space-between',
+            gap: '0.5rem',
+          }}>
+            <label htmlFor="password" className="label">Password</label>
+            <Link
+              href="/forgot"
+              style={{
+                fontSize: '11px',
+                color: 'var(--muted)',
+                textDecoration: 'underline',
+                textDecorationColor: 'var(--border)',
+                textUnderlineOffset: '3px',
+              }}
+            >
+              Forgot password?
+            </Link>
+          </div>
           <input
             id="password"
             type="password"
