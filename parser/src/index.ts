@@ -16,6 +16,8 @@ import { extractTextWithOcr } from './ocr';
 import type { ParsedDocument, DetectionResult } from './types/index';
 import { parseAahInvoice } from './parsers/aah-invoice';
 import { parseAahStatement } from './parsers/aah-statement';
+import { parsePhoenixInvoices } from './parsers/phoenix-invoice';
+import { parsePhoenixStatement } from './parsers/phoenix-statement';
 import { parseAverInvoice } from './parsers/aver-invoice';
 import { parseAverStatement } from './parsers/aver-statement';
 
@@ -31,6 +33,8 @@ export interface ParseResult {
   rawText: string;
   /** The parsed structured document, or null if parsing failed. */
   document: ParsedDocument | null;
+  /** Every document in the file when it holds more than one (e.g. a Phoenix invoice bundle). */
+  documents?: ParsedDocument[];
   /** Top-level errors (PDF couldn't be read, no parser available, etc.). */
   errors: string[];
 }
@@ -86,6 +90,8 @@ export async function parsePdf(buffer: Buffer): Promise<ParseResult> {
 
   // Step 3: Route to the right parser
   let document: ParsedDocument | null = null;
+  // Some suppliers send several invoices in one PDF; document is the first of them.
+  let documents: ParsedDocument[] | undefined;
 
   if (detection.supplier === 'aah' && detection.kind === 'invoice') {
     document = parseAahInvoice(text);
@@ -95,6 +101,11 @@ export async function parsePdf(buffer: Buffer): Promise<ParseResult> {
     document = parseAverInvoice(text);
   } else if (detection.supplier === 'aver' && detection.kind === 'statement') {
     document = parseAverStatement(text);
+  } else if (detection.supplier === 'phoenix' && detection.kind === 'invoice') {
+    documents = parsePhoenixInvoices(text);
+    document = documents[0] ?? null;
+  } else if (detection.supplier === 'phoenix' && detection.kind === 'statement' && /STATEMENT OF ACCOUNT/.test(text)) {
+    document = parsePhoenixStatement(text);
   } else {
     errors.push(
       `No parser yet for ${detection.supplier}/${detection.kind}. ` +
@@ -102,7 +113,7 @@ export async function parsePdf(buffer: Buffer): Promise<ParseResult> {
     );
   }
 
-  return { detection, rawText: text, document, errors };
+  return { detection, rawText: text, document, ...(documents && documents.length > 1 ? { documents } : {}), errors };
 }
 
 // Re-export key types for consumers
