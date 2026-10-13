@@ -41,3 +41,8 @@ test('invoice shorthand and one-letter misspellings still match', () => {
   // Different medicines with similar spelling do not match.
   assert.deepEqual(matchScan(inv, [], [{ name: 'x', generic_name: 'Hydroxyzine 25mg tablets 56 tablet', pack_qty: 56 }]).lineIds, []);
 });
+test('a GTIN printed on the invoice line wins', () => {
+  const withGtin = [...lines.slice(0, 2), { id: 'g', description: 'VERAPAMIL TABS 160MG', pack_size: '56', supplier_sku: 'X', gtin: '05012617009784' }];
+  assert.deepEqual(matchScan(withGtin, ['VER40'], [verapamil], '05012617009784'), { lineIds: ['g'], source: 'invoice' });
+  assert.equal(matchScan(withGtin, ['VER40'], [verapamil], '00000000000000').source, 'mapping');
+});

@@ -6,12 +6,12 @@ Free, open-source invoice and delivery reconciliation for independent community 
 
 ## What it does
 
-- Upload AAH and Aver invoice and statement PDFs — auto-detected, parsed line-by-line
+- Upload AAH, Aver and Phoenix invoice and statement PDFs — auto-detected, parsed line-by-line (Phoenix bundles of several invoices are split)
 - Tick off lines as received, short, or damaged with notes and disposition
 - Generate credit-request emails with the right account references
 - Reconcile statements against uploaded invoices and recorded credits
 - Track which credits are still outstanding
-- Record received pack quantities against invoices and use verified barcode mappings
+- Record received pack quantities by scanning packs: the scan finds its invoice line from the GTIN printed on the invoice, your verified mappings, or NHS dm+d
 - Record deliveries before an invoice arrives, then link the paperwork explicitly
 
 ## Development checks
@@ -39,6 +39,10 @@ Uploaded documents and application records use your configured Supabase project.
 Reckon helps staff record what arrived and follow up financial differences. It does not replace a dispensing system or prove current shelf stock: dispensing, returns, transfers and adjustments also change stock. Scottish reimbursement analysis requires Scottish tariff and payment rules, beyond invoice reconciliation.
 
 Read the [feature review](./docs/feature-review.md) for supported workflows, known gaps and evidence.
+
+## NHS dm+d
+
+Pack names and barcodes come from the NHS Dictionary of Medicines and Devices (dm+d), published by the NHSBSA through NHS TRUD. Contains public sector information licensed under the Open Government Licence v3.0. Load a release with `scripts/import-dmd.mts` (see SETUP.md).
 
 ## License
 

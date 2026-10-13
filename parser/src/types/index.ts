@@ -34,6 +34,8 @@ export interface InvoiceLine {
   gross: number;
   /** Free-text notes the supplier put against the line (e.g. "SCM", "*"). */
   flags?: string;
+  /** Pack GTIN (14 digits) when the supplier prints it on the invoice (Phoenix does). */
+  gtin?: string;
 }
 
 /** A parsed invoice, normalised across all suppliers. */

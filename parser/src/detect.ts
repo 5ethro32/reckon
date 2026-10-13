@@ -49,6 +49,11 @@ const FINGERPRINTS: SupplierFingerprint[] = [
     signals: [
       { pattern: /Phoenix Healthcare/i,                weight: 0.5, label: 'Phoenix legal name' },
       { pattern: /phoenixuk\.com/i,                    weight: 0.3, label: 'Phoenix domain' },
+      // Invoices print the name as an image; the registered details are text.
+      { pattern: /COMPANY REG No:\s*129370/i,          weight: 0.4, label: 'Phoenix company number' },
+      { pattern: /VAT No\.?\s*109\s*8982\s*28/i,       weight: 0.3, label: 'Phoenix VAT number' },
+      { pattern: /WWW\.MYP-I-N\.CO\.UK/i,               weight: 0.2, label: 'Phoenix conditions URL' },
+      { pattern: /Rivington Road,?\s*Whitehouse/i,     weight: 0.2, label: 'Phoenix registered office' },
     ],
   },
   {
