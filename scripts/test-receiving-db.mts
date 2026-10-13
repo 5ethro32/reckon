@@ -42,9 +42,19 @@ await assert.rejects(db.query('select import_barcode_catalog($1,$2)',[otherLine,
 await assert.rejects(db.query('select import_barcode_catalog($1,$2)',[line,JSON.stringify([{...mapping,supplier:'Another'},{...mapping,pack_size:'56'}])]),/conflicts/);
 assert.equal((await db.query<{count:number}>("select count(*)::int as count from product_barcodes where supplier='Another'")).rows[0].count,0);
 assert.equal((await db.query<{count:number}>('select count(*)::int as count from receipt_events')).rows[0].count,2);
+// Owners and admins can remove a wrong mapping so the next scan is confirmed again.
+await db.exec(`create table pharmacy_memberships(pharmacy_id uuid,user_id uuid,role text);insert into pharmacy_memberships values('${tenant}','${user}','member');`);
+await db.exec(await fs.readFile(new URL('../supabase/migrations/0014_barcode_mapping_correction.sql',import.meta.url),'utf8'));
+await assert.rejects(db.query('select remove_barcode_mapping($1,$2)',[line,'04006381333931']),/owner or admin/);
+await db.query("update pharmacy_memberships set role='admin'");
+await assert.rejects(db.query('select remove_barcode_mapping($1,$2)',[otherLine,'04006381333931']),/owner or admin/);
+assert.equal((await db.query<{removed:boolean}>('select remove_barcode_mapping($1,$2) as removed',[line,'04006381333931'])).rows[0].removed,true);
+assert.equal((await db.query<{count:number}>("select count(*)::int as count from product_barcodes where supplier='Aver'")).rows[0].count,0);
+assert.equal((await db.query<{removed:boolean}>('select remove_barcode_mapping($1,$2) as removed',[line,'04006381333931'])).rows[0].removed,false);
+assert.equal((await db.query<{count:number}>('select count(*)::int as count from receipt_events')).rows[0].count,2);
 // Non-owner browser clients cannot mutate audit rows or mappings directly.
 await db.exec('grant usage on schema public to authenticated; grant select,insert,update,delete on product_barcodes,receipt_events to authenticated; set role authenticated;');
 assert.equal((await db.query('delete from receipt_events where id=$1 returning id',[uuid(1)])).rows.length,0);
 await db.exec('reset role');
 await db.close();
-console.log('Receiving SQL: idempotency, tenant isolation, serial duplicate, pack mismatch, flags, import rollback and audit RLS passed');
+console.log('Receiving SQL: idempotency, tenant isolation, serial duplicate, pack mismatch, flags, import rollback, admin-only mapping removal and audit RLS passed');

@@ -26,3 +26,25 @@ test('authorized CSV catalog retains quoted names and validates packs and identi
  assert.throws(()=>parseCatalogCsv(header+'Aver,SKU,4006381333931,Product,28,not-ampp'),/AMPP/);
  assert.throws(()=>parseCatalogCsv(header+'Aver,SKU,4006381333931,Product,28,123456\nAver,OTHER,4006381333931,Other,56,123456'),/duplicate/);
 });
+test('scanner payloads without the GS1 separator are read only when unambiguous',()=>{
+ const full={gtin:'04006381333931',batch:'AB12',expiry:'2026-12-31',serial:'XYZ123'};
+ // Separator substitutes that scanners can be configured to send.
+ assert.deepEqual(parsePackBarcode('010400638133393117261231' + '10AB12|21XYZ123'),full);
+ assert.deepEqual(parsePackBarcode('010400638133393117261231' + '10AB12<GS>21XYZ123'),full);
+ // No separator: only one reading has all four fields, so it is safe.
+ assert.deepEqual(parsePackBarcode('0104006381333931172612311' + '0AB1221XYZ123'),full);
+ // Serial first: the expiry is not swallowed into the serial.
+ assert.deepEqual(parsePackBarcode('010400638133393121XYZ123' + '1726123110AB12'),full);
+ // A batch that itself contains "21" cannot be split safely.
+ assert.throws(()=>parsePackBarcode('010400638133393117261231' + '10AB21C21XYZ'),/separator/);
+ // Missing serial and a "21" inside the batch: two readings, neither complete.
+ assert.throws(()=>parsePackBarcode('0104006381333931' + '10AB21XY'),/separator/);
+ // Plain GTIN (linear barcode) carries no batch, expiry or serial.
+ assert.deepEqual(parsePackBarcode('4006381333931'),{gtin:'04006381333931'});
+});
+test('catalog supplier names map to the invoice supplier code',()=>{
+ assert.equal(parseCatalogCsv(header+'AAH Pharmaceuticals,SKU,4006381333931,Product,28,')[0].supplier,'aah');
+ assert.equal(parseCatalogCsv(header+'Aver,SKU,4006381333931,Product,28,')[0].supplier,'aver');
+ assert.throws(()=>parseCatalogCsv(header+'Acme Wholesale,SKU,4006381333931,Product,28,'),/Unknown supplier/);
+ assert.throws(()=>parseCatalogCsv(header+'AAH,SKU,4006381333931,A,28,\naah,SKU2,4006381333931,B,28,'),/duplicate/);
+});

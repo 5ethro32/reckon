@@ -26,9 +26,11 @@ export default function PackReceiving({ lines }: { lines: Line[] }) {
   async function start(){
    try {
     if(!navigator.mediaDevices?.getUserMedia)throw Error('Camera access needs HTTPS and a supported browser. Use a handheld scanner or type the barcode.');
-    const {BrowserMultiFormatReader,BarcodeFormat}=await import('@zxing/browser');
+    const [{BrowserMultiFormatReader,BarcodeFormat},{DecodeHintType}]=await Promise.all([import('@zxing/browser'),import('@zxing/library')]);
     if(cancelled || !video.current)return;
-    const reader=new BrowserMultiFormatReader();
+    // ASSUME_GS1 keeps FNC1 separators in GS1-128 codes; TRY_HARDER helps small pack DataMatrix codes.
+    const hints=new Map<unknown,unknown>([[DecodeHintType.ASSUME_GS1,true],[DecodeHintType.TRY_HARDER,true]]);
+    const reader=new BrowserMultiFormatReader(hints as Map<never,unknown>);
     reader.possibleFormats=[BarcodeFormat.EAN_13,BarcodeFormat.EAN_8,BarcodeFormat.UPC_A,BarcodeFormat.DATA_MATRIX,BarcodeFormat.CODE_128,BarcodeFormat.QR_CODE];
     controls=await reader.decodeFromConstraints({video:{facingMode:{ideal:'environment'}}},video.current,(result)=>{
      if(cancelled || !result || pending.current)return;
@@ -64,6 +66,17 @@ export default function PackReceiving({ lines }: { lines: Line[] }) {
   }catch(e){setMessage(e instanceof Error?e.message:'Could not record receipt. Retry the same entry to confirm.');}
   finally{pending.current=false;setBusy(false);}
  }
+ async function removeMapping(){
+  if(pending.current)return;pending.current=true;setBusy(true);
+  try{
+   const gtin=parsePackBarcode(barcode).gtin;
+   const response=await fetch('/api/barcode-catalog',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({lineId,gtin})});
+   const data=await response.json();if(!response.ok)throw Error(data.error??'Could not remove mapping');
+   setConfirmed(false);
+   setMessage(data.removed?'Old mapping removed. Check the product and pack, tick the confirmation and record again.':'No mapping was stored for this barcode and supplier.');
+  }catch(e){setMessage(e instanceof Error?e.message:'Could not remove mapping');}
+  finally{pending.current=false;setBusy(false);}
+ }
  const selected=lines.find(l=>l.id===lineId);
  return <section className="card" style={{padding:'1.5rem',marginBottom:'1.5rem'}}>
   <h2>Receive packs</h2>
@@ -76,6 +89,7 @@ export default function PackReceiving({ lines }: { lines: Line[] }) {
    {camera&&<video ref={video} muted playsInline style={{width:'100%',maxHeight:250}}/>}
    <label>Packs received now<input className="input" style={{minHeight:44}} disabled={busy||!!serial} type="number" min={1} max={100000} step={1} required value={quantity} onChange={e=>setQuantity(Number(e.target.value))}/></label>
    {serial&&<p>Serialised pack {serial} · one pack per scan</p>}
+   {barcode&&!serial&&!batch&&!expiry&&/^\d{8,14}$/.test(barcode.trim())&&<small>This is a plain (linear) barcode: it identifies the product and pack size only. Enter the batch and expiry from the pack if you need them.</small>}
    <label>Batch (optional)<input className="input" style={{minHeight:44}} disabled={busy} maxLength={100} value={batch} onChange={e=>setBatch(e.target.value)}/></label>
    <label>Expiry (optional)<input className="input" style={{minHeight:44}} disabled={busy} type="date" value={expiry} onChange={e=>setExpiry(e.target.value)}/></label>
    <label><input disabled={busy} type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/> I checked the exact product and pack size against the physical pack. Save this barcode mapping if it is new.</label>
@@ -83,6 +97,7 @@ export default function PackReceiving({ lines }: { lines: Line[] }) {
    <button style={{minHeight:44}} className="btn btn-primary" disabled={busy||!lineId||!selected?.pack_size} type="submit">{busy?'Saving…':'Record received packs'}</button>
   </form>
   <p role="status" aria-live="polite">{message}</p>
+  {/different product or pack/.test(message)&&<button style={{minHeight:44}} className="btn btn-secondary" disabled={busy} type="button" onClick={removeMapping}>Remove the old barcode mapping (owner or admin)</button>}
   <details><summary>Receipt history</summary><p>Latest 100 recorded scans for this product. Manual quantity changes are not scan events.</p>{historyLoading?<p role="status">Loading receipt history…</p>:historyError?<p role="alert">{historyError}</p>:events.length?<ul>{events.map(e=><li key={e.id}>{new Date(e.recorded_at).toLocaleString('en-GB')} · {e.quantity} pack{e.quantity===1?'':'s'} · GTIN {e.gtin}{e.batch?` · batch ${e.batch}`:''}{e.expiry?` · expiry ${e.expiry}`:''}{e.serial?` · serial ${e.serial}`:''}<small style={{display:'block'}}>Recorded by {e.recorded_by} · receipt {e.id}</small></li>)}</ul>:<p>No scan events recorded.</p>}</details>
   <CatalogImport lineId={lineId}/>
  </section>;

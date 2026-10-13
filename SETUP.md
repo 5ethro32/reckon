@@ -93,6 +93,17 @@ Once deployed, go back to your Supabase dashboard and add the production URL to 
 
 In Vercel, go to your project settings → Domains, then add your domain. Vercel will give you DNS records to point at — add them at your registrar. Update the Supabase redirect URLs to match the new domain.
 
+## Barcode scanners
+
+Phone cameras work over HTTPS in current Safari, Chrome and Firefox. A USB or Bluetooth handheld scanner works as a keyboard: click the **Pack barcode** box and scan.
+
+Medicine packs carry two kinds of barcode:
+
+- **Linear barcode (EAN-13):** the GTIN only. It identifies the product and pack size, not the batch, expiry or serial number. Enter those from the pack if you need them.
+- **2D DataMatrix:** the GTIN plus expiry, batch and serial number. Prefer it when a pack has one.
+
+Handheld scanners often cannot type the hidden separator inside a DataMatrix code. If a scan reports that the separator is missing, set the scanner to send a substitute for the GS1 group separator (ASCII 29), such as `|`, `~` or `^`; most scanners have a setup barcode for this in their manual. Reckon will not guess where a batch ends and a serial begins.
+
 ## Troubleshooting
 
 - **Magic link redirects to `localhost` in production**: you forgot to add the production URL to Supabase's redirect URLs list.

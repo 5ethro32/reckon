@@ -1,6 +1,7 @@
 import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import ts from 'typescript';
+import * as creditStatus from '../app/lib/credit-status.ts';
 // Execute the actual handler with only HTTP/database boundaries substituted.
 const source=readFileSync('app/app/api/credits/[id]/route.ts','utf8');
 const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
@@ -10,13 +11,14 @@ let updates:Record<string,unknown>[]=[];
 const db={auth:{getUser:async()=>({data:{user:signedIn?{id:'user'}:null}})},from:()=>{
  const chain:Record<string,unknown>={};
  chain.select=()=>chain;chain.eq=()=>chain;chain.maybeSingle=async()=>({data:existing,error:null});
- chain.update=(value:Record<string,unknown>)=>{updates.push(value);return {eq:async()=>({error:null})};};
+ chain.update=(value:Record<string,unknown>)=>{updates.push(value);const filter:Record<string,unknown>={eq:()=>filter,then:(resolve:(v:unknown)=>unknown)=>resolve({error:null})};return filter;};
  return chain;
 }};
 const exported:{exports:Record<string,any>}={exports:{}};
 const requireMock=(name:string)=>{
  if(name==='next/server')return{NextResponse:{json:(body:unknown,init?:{status?:number})=>new Response(JSON.stringify(body),{status:init?.status??200})}};
  if(name==='@/lib/supabase/server')return{createClient:async()=>db};
+ if(name==='@/lib/credit-status')return (creditStatus as {default?:unknown}).default ?? creditStatus;
  throw Error(`Unexpected import ${name}`);
 };
 new Function('require','module','exports',js)(requireMock,exported,exported.exports);
@@ -33,4 +35,8 @@ assert.equal((await patch({external_credit_note_number:null})).status,409);asser
 assert.equal((await patch({external_credit_note_number:'CN-2'})).status,409);assert.equal(updates.length,0);
 assert.equal((await patch({status:'sent'})).status,409);assert.equal(updates.length,0);
 assert.equal((await patch({notes:'Supplier confirmed receipt'})).status,200);
-console.log('PASS: actual credit PATCH handler rejects unauthenticated requests, requires resolution evidence, records sent confirmation and preserves resolved evidence/status.');
+existing={id:'claim',status:'cancelled',external_credit_note_number:null};
+assert.equal((await patch({status:'sent'})).status,409);assert.equal(updates.length,0);
+existing={id:'claim',status:'sent',external_credit_note_number:null};
+assert.equal((await patch({status:'draft'})).status,409);assert.equal(updates.length,0);
+console.log('PASS: actual credit PATCH handler rejects unauthenticated requests, requires resolution evidence, records sent confirmation and preserves resolved evidence/status and blocks reopening cancelled claims.');
