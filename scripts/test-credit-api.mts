@@ -22,9 +22,12 @@ const requireMock=(name:string)=>{
 new Function('require','module','exports',js)(requireMock,exported,exported.exports);
 async function patch(body:unknown){updates=[];return exported.exports.PATCH({json:async()=>body},{params:Promise.resolve({id:'claim'})}) as Promise<Response>;}
 signedIn=false;assert.equal((await patch({status:'sent'})).status,401);assert.equal(updates.length,0);signedIn=true;
+assert.equal((await patch(null)).status,400);assert.equal(updates.length,0);
 assert.equal((await patch({status:'resolved',external_credit_note_number:'  '})).status,400);assert.equal(updates.length,0);
 assert.equal((await patch({status:'sent'})).status,200);assert.equal(updates[0].sent_by,'user');assert.ok(updates[0].sent_at);
 assert.equal((await patch({status:'resolved',external_credit_note_number:' CN-1 '})).status,200);assert.equal(updates[0].external_credit_note_number,'CN-1');
+existing={id:'claim',status:'draft',external_credit_note_number:'   '};
+assert.equal((await patch({status:'resolved'})).status,400);assert.equal(updates.length,0);
 existing={id:'claim',status:'resolved',external_credit_note_number:'CN-1'};
 assert.equal((await patch({external_credit_note_number:null})).status,409);assert.equal(updates.length,0);
 assert.equal((await patch({external_credit_note_number:'CN-2'})).status,409);assert.equal(updates.length,0);
