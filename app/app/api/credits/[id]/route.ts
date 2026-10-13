@@ -103,15 +103,21 @@ export async function PATCH(
     return NextResponse.json({ error: 'A resolved claim cannot be reopened by changing its status' }, { status: 409 });
   }
 
-  const { error: updateError } = await supabase
+  const { data: changed, error: updateError } = await supabase
     .from('credit_requests')
     .update(update)
     .eq('id', id)
     // Only apply the change if nobody moved the claim on since it was read.
-    .eq('status', existing.status);
+    .eq('status', existing.status)
+    .select('id');
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
+  }
+  // No row matched: the claim changed (for example a statement resolved it) after it was read.
+  // Stop here, so cancelling cannot unlink lines from a claim that is no longer cancellable.
+  if (!changed || changed.length === 0) {
+    return NextResponse.json({ error: 'This claim was updated elsewhere. Refresh and try again.' }, { status: 409 });
   }
 
   // If we're closing this request out, unlink the invoice_lines so they can

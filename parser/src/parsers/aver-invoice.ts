@@ -154,18 +154,22 @@ function extractAverHeaderBlock(text: string): {
   invoiceNumber: string;
   invoiceDate: string;
   accountNumber: string;
+  dueDate: string;
 } {
   // The label trio always appears in this exact order on Aver invoices.
   // The 2026 layout adds a "Payment Due" label (and value) after Account No.
-  const labelBlock = text.match(/Invoice No\.\s*\n\s*Invoice\/Tax Date\s*\n\s*Account No\.\s*\n(?:\s*Payment Due\s*\n)?([\s\S]+?)(?=\n[A-Z][a-z]|\nBin)/);
-  const empty = { invoiceNumber: '', invoiceDate: '', accountNumber: '' };
-  if (!labelBlock?.[1]) return empty;
+  const labelBlock = text.match(/Invoice No\.\s*\n\s*Invoice\/Tax Date\s*\n\s*Account No\.\s*\n(\s*Payment Due\s*\n)?([\s\S]+?)(?=\n[A-Z][a-z]|\nBin)/);
+  const hasDue = !!labelBlock?.[1];
+  const empty = { invoiceNumber: '', invoiceDate: '', accountNumber: '', dueDate: '' };
+  if (!labelBlock?.[2]) return empty;
 
-  const valueLines = labelBlock[1].split(/\n/).map(l => l.trim()).filter(Boolean);
+  const valueLines = labelBlock[2].split(/\n/).map(l => l.trim()).filter(Boolean);
   return {
     invoiceNumber: valueLines[0] ?? '',
     invoiceDate: valueLines[1] ?? '',
     accountNumber: valueLines[2] ?? '',
+    // Present only in the 2026 layout, which adds the Payment Due label.
+    dueDate: hasDue && /^\d{2}\/\d{2}\/\d{4}$/.test(valueLines[3] ?? '') ? valueLines[3]! : '',
   };
 }
 
@@ -257,6 +261,7 @@ export function parseAverInvoice(text: string): ParsedInvoice {
     supplier: 'aver',
     invoiceNumber: header.invoiceNumber,
     invoiceDate: header.invoiceDate ? toIsoDate(header.invoiceDate) : '',
+    dueDate: header.dueDate ? toIsoDate(header.dueDate) : undefined,
     poNumber: undefined, // Aver doesn't include PO on invoice
     customerAccount: header.accountNumber || undefined,
     customerName: customerNameMatch?.[1]?.trim(),

@@ -283,7 +283,8 @@ export async function POST(request: NextRequest) {
       const share = creditShare({ flags: line.flags, qtyOrdered: line.qtyOrdered, qtyReceived: line.qtyReceived, qtyReturned: line.qtyReturned ?? null });
       line.gross = creditValue(line.gross, share);
       if (line.net !== undefined) line.net = creditValue(line.net, share);
-      if (line.vatAmount !== undefined) line.vatAmount = creditValue(line.vatAmount, share);
+      // VAT is the remainder, so net + VAT always equals the gross the claim asks for.
+      if (line.vatAmount !== undefined) line.vatAmount = line.net !== undefined ? Math.round((line.gross - line.net) * 100) / 100 : creditValue(line.vatAmount, share);
     }
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid credit quantities' }, { status: 422 });

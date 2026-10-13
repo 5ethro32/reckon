@@ -52,7 +52,7 @@ Total Amount
 £0.00
 £6.92
 £41.58`);
-assert.equal(current.invoiceNumber,'9999002');assert.equal(current.invoiceDate,'2026-10-06');assert.equal(current.customerAccount,'TEST');
+assert.equal(current.invoiceNumber,'9999002');assert.equal(current.invoiceDate,'2026-10-06');assert.equal(current.dueDate,'2026-11-30');assert.equal(current.customerAccount,'TEST');
 assert.deepEqual(current.lines.map(l=>[l.packSize,l.qty]),[['30',6],['100',1],['100s',2],['56s',1],['100',4]]);
 assert.equal(current.lines[1].description,'Co-Codamol Tabs 8/500mg / 100 CD5');assert.equal(current.totalsMatch,true,current.warnings.join('; '));
 // Phoenix: invoice section only (returns stub ignored), GTIN lines, VAT summary, two invoices in one PDF.
@@ -108,7 +108,7 @@ NOV-24
 08/11/24  INVOICE PHD  5684  95320580  78.62  72.98
 TOTAL OUTSTANDING 72.98`);
 assert.deepEqual(pst.rows.map(r=>[r.documentType,r.documentNumber,r.total]),[['OTHER','862197',-100],['INV','95288666',44.4],['CRED','7099893',-50.04],['INV','95320580',78.62]]);
-assert.equal(pst.statementDate,'2024-11-30');assert.equal(pst.customerAccount,'99999');assert.equal(pst.totalsMatch,true,pst.warnings.join('; '));
+assert.equal(pst.statementDate,'2024-11-30');assert.equal(pst.totals.total,72.98);assert.equal(pst.customerAccount,'99999');assert.equal(pst.totalsMatch,true,pst.warnings.join('; '));
 const statement=parseAverStatement(`Aver Generics Ltd
 Statement of Account
 2.0010.009999001Invoice13/10/2026Unallocated0.0012.00

@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
+import { creditShare, creditValue } from '@/lib/credit-amount';
 import StatementDetailTable, { type StatementDetailRow } from './statement-detail-table';
 
 const supplierLabels: Record<string, string> = {
@@ -52,6 +53,9 @@ export default async function StatementDetailPage({
         id: string;
         gross: number;
         flags: string[];
+        qty_ordered: number;
+        qty_received: number | null;
+        qty_returned?: number | null;
         credited_via_statement_line_id?: string | null;
         credit_request_id?: string | null;
       }[];
@@ -64,6 +68,9 @@ export default async function StatementDetailPage({
         id: string;
         gross: number;
         flags: string[];
+        qty_ordered: number;
+        qty_received: number | null;
+        qty_returned?: number | null;
         credited_via_statement_line_id?: string | null;
         credit_request_id?: string | null;
       }[];
@@ -98,7 +105,7 @@ export default async function StatementDetailPage({
         invoices:matched_invoice_id (
           id, invoice_number, gross_total, receipt_status,
           invoice_lines (
-            id, gross, flags,
+            id, gross, flags, qty_ordered, qty_received, qty_returned,
             credited_via_statement_line_id, credit_request_id
           )
         ),
@@ -153,6 +160,9 @@ export default async function StatementDetailPage({
     id: string;
     gross: number;
     flags: string[];
+    qty_ordered: number;
+    qty_received: number | null;
+    qty_returned?: number | null;
     credited_via_statement_line_id?: string | null;
     credit_request_id?: string | null;
   };
@@ -197,7 +207,11 @@ export default async function StatementDetailPage({
         }
         return true;
       })
-      .reduce((sum, l) => sum + Number(l.gross), 0);
+      // Same prorated amount as the claim: a one-pack shortage from ten is a tenth of the line.
+      .reduce((sum, l) => {
+        try { return sum + creditValue(Number(l.gross), creditShare({ flags: l.flags, qtyOrdered: l.qty_ordered, qtyReceived: l.qty_received, qtyReturned: l.qty_returned ?? null })); }
+        catch { return sum; }
+      }, 0);
   }
 
   const allLines = lines ?? [];
