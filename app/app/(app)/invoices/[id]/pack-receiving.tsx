@@ -1,11 +1,11 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { parsePackBarcode } from '@/lib/receiving';
 import CatalogImport from './barcode-catalog-import';
-type Line = { id: string; description: string; pack_size: string | null; qty_ordered: number; qty_received: number | null };
+type Line = { id: string; description: string; pack_size: string | null; supplier_sku?: string | null; qty_ordered: number; qty_received: number | null };
 type Receipt = { id:string; quantity:number; gtin:string; batch:string|null; expiry:string|null; serial:string|null; recorded_at:string; recorded_by:string };
-export default function PackReceiving({ lines }: { lines: Line[] }) {
+export default function PackReceiving({ invoiceId, lines }: { invoiceId: string; lines: Line[] }) {
  const router=useRouter();
  const [lineId,setLineId]=useState(lines[0]?.id??'');
  const [barcode,setBarcode]=useState(''); const [quantity,setQuantity]=useState(1);
@@ -16,10 +16,28 @@ export default function PackReceiving({ lines }: { lines: Line[] }) {
  const historyLoading=history.key!==`${lineId}:${historyVersion}`;const events=history.events;const historyError=history.error;
  const video=useRef<HTMLVideoElement>(null);const barcodeInput=useRef<HTMLInputElement>(null);
  const retry=useRef<{key:string;id:string}|null>(null);const pending=useRef(false);
+ async function suggestLine(gtin:string){
+  try{
+   const response=await fetch('/api/receiving/lookup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({invoiceId,gtin})});
+   const data=await response.json();if(!response.ok)throw Error(data.error??'Lookup failed');
+   const ids:string[]=data.lineIds??[];
+   if(ids.length===1){
+    setLineId(ids[0]);
+    setMessage(data.source==='mapping'?'Matched to the invoice line from your saved barcode. Check the quantity before recording.':`Suggested from NHS dm+d (${data.dmdName}). Check the product and pack size against the pack before recording.`);
+   }else if(ids.length>1){
+    if(!ids.includes(lineId))setLineId(ids[0]);
+    setMessage(`This barcode fits ${ids.length} invoice lines. Choose the right one before recording.`);
+   }else setMessage(data.dmdName?`NHS dm+d lists this pack as ${data.dmdName}, but no invoice line matches it. Choose the line, or record it as an exception.`:'Barcode not recognised. Choose the invoice line and confirm the product and pack size.');
+  }catch{setMessage('Barcode read. Choose the invoice line and check the product, pack size and quantity before recording.');}
+ }
  function capture(raw:string) {
   const pack=parsePackBarcode(raw);setBarcode(pack.gtin);setBatch(pack.batch??'');setExpiry(pack.expiry??'');setSerial(pack.serial??'');setConfirmed(false);if(pack.serial)setQuantity(1);
-  setMessage('Barcode read. Check the selected product, pack size and quantity before recording.');
+  setMessage('Barcode read. Finding the invoice line…');
+  void suggestLine(pack.gtin);
  }
+ const onScan=useEffectEvent((text:string)=>{
+  try{capture(text);setCamera(false);}catch(e){setMessage(e instanceof Error?e.message:'Could not read this barcode');}
+ });
  useEffect(()=>{
   if(!camera)return;
   let cancelled=false;let controls:{stop():void}|undefined;
@@ -34,7 +52,7 @@ export default function PackReceiving({ lines }: { lines: Line[] }) {
     reader.possibleFormats=[BarcodeFormat.EAN_13,BarcodeFormat.EAN_8,BarcodeFormat.UPC_A,BarcodeFormat.DATA_MATRIX,BarcodeFormat.CODE_128,BarcodeFormat.QR_CODE];
     controls=await reader.decodeFromConstraints({video:{facingMode:{ideal:'environment'}}},video.current,(result)=>{
      if(cancelled || !result || pending.current)return;
-     try{capture(result.getText());setCamera(false);}catch(e){setMessage(e instanceof Error?e.message:'Could not read this barcode');}
+     onScan(result.getText());
     });
     if(cancelled)controls.stop();
    }catch(e){if(!cancelled){setMessage(e instanceof Error?e.message:'Camera unavailable. Use a handheld scanner or enter the barcode.');setCamera(false);}}
@@ -100,5 +118,6 @@ export default function PackReceiving({ lines }: { lines: Line[] }) {
   {/different product or pack/.test(message)&&<button style={{minHeight:44}} className="btn btn-secondary" disabled={busy} type="button" onClick={removeMapping}>Remove the old barcode mapping (owner or admin)</button>}
   <details><summary>Receipt history</summary><p>Latest 100 recorded scans for this product. Manual quantity changes are not scan events.</p>{historyLoading?<p role="status">Loading receipt history…</p>:historyError?<p role="alert">{historyError}</p>:events.length?<ul>{events.map(e=><li key={e.id}>{new Date(e.recorded_at).toLocaleString('en-GB')} · {e.quantity} pack{e.quantity===1?'':'s'} · GTIN {e.gtin}{e.batch?` · batch ${e.batch}`:''}{e.expiry?` · expiry ${e.expiry}`:''}{e.serial?` · serial ${e.serial}`:''}<small style={{display:'block'}}>Recorded by {e.recorded_by} · receipt {e.id}</small></li>)}</ul>:<p>No scan events recorded.</p>}</details>
   <CatalogImport lineId={lineId}/>
+  <small style={{display:'block',marginTop:'0.75rem'}}>Pack names and barcodes from the NHS Dictionary of Medicines and Devices (dm+d), contains public sector information licensed under the Open Government Licence v3.0.</small>
  </section>;
 }

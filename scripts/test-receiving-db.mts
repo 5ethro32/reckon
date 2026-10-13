@@ -52,9 +52,14 @@ assert.equal((await db.query<{removed:boolean}>('select remove_barcode_mapping($
 assert.equal((await db.query<{count:number}>("select count(*)::int as count from product_barcodes where supplier='Aver'")).rows[0].count,0);
 assert.equal((await db.query<{removed:boolean}>('select remove_barcode_mapping($1,$2) as removed',[line,'04006381333931'])).rows[0].removed,false);
 assert.equal((await db.query<{count:number}>('select count(*)::int as count from receipt_events')).rows[0].count,2);
+// dm+d reference packs are readable by signed-in users and writable only by the importer.
+await db.exec(await fs.readFile(new URL('../supabase/migrations/0015_dmd_reference.sql',import.meta.url),'utf8'));
+await db.query("insert into dmd_packs(gtin,ampp_id,name,generic_name,pack_qty) values('04006381333931','1327911000001107','Tablets (Maker) 28 tablet','Tablets 28 tablet',28)");
 // Non-owner browser clients cannot mutate audit rows or mappings directly.
-await db.exec('grant usage on schema public to authenticated; grant select,insert,update,delete on product_barcodes,receipt_events to authenticated; set role authenticated;');
+await db.exec('grant usage on schema public to authenticated; grant select,insert,update,delete on product_barcodes,receipt_events,dmd_packs to authenticated; set role authenticated;');
 assert.equal((await db.query('delete from receipt_events where id=$1 returning id',[uuid(1)])).rows.length,0);
+assert.equal((await db.query('select gtin from dmd_packs')).rows.length,1);
+await assert.rejects(db.query("insert into dmd_packs(gtin,ampp_id,name) values('00000096385074','1327911000001108','x')"));
 await db.exec('reset role');
 await db.close();
-console.log('Receiving SQL: idempotency, tenant isolation, serial duplicate, pack mismatch, flags, import rollback, admin-only mapping removal and audit RLS passed');
+console.log('Receiving SQL: idempotency, tenant isolation, serial duplicate, pack mismatch, flags, import rollback, admin-only mapping removal, read-only dm+d reference and audit RLS passed');
