@@ -12,9 +12,12 @@
     "dev": "npm run dev --workspace app",
     "build": "npm run build --workspace app",
     "start": "npm run start --workspace app",
-    "grant": "tsx scripts/grant-membership.ts"
+    "grant": "tsx scripts/grant-membership.ts",
+    "test": "tsx --test app/lib/__tests__/*.test.ts && tsx scripts/test-parser-synthetic.mts && node scripts/test-operations.mjs && tsx scripts/test-credit-db.mts && tsx scripts/test-receiving-db.mts && tsx scripts/test-uninvoiced-db.mts && tsx scripts/test-pdf-render.mts && tsx scripts/test-credit-api.mts",
+    "typecheck": "tsc --noEmit -p app/tsconfig.json"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.9",
     "@supabase/supabase-js": "^2.46.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.0"

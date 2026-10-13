@@ -8,46 +8,33 @@
 
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
+import { readAll } from '@/lib/paginated-read';
+import { summarise, type Invoice, type Line } from '@/lib/operations-summary';
 import InvoicesList, { type InvoiceRow } from './invoices-list';
 
 export default async function InvoicesPage() {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('invoices')
-    .select(`
-      id, supplier, invoice_number, invoice_date, gross_total, totals_match,
-      invoice_lines ( flags )
-    `)
-    .is('deleted_at', null)
-    .order('invoice_date', { ascending: false });
-
-  if (error) return <ErrorState message={error.message} />;
-  const raw = data ?? [];
-  if (raw.length === 0) return <EmptyState />;
-
-  const rows: InvoiceRow[] = raw.map(inv => {
-    const lineCount = inv.invoice_lines.length;
-    const fullCount = inv.invoice_lines.filter((l: { flags: string[] }) => l.flags.length === 0).length;
-    const exceptionCount = lineCount - fullCount;
-    return {
-      id: inv.id,
-      supplier: inv.supplier,
-      invoice_number: inv.invoice_number,
-      invoice_date: inv.invoice_date,
-      gross_total: Number(inv.gross_total),
-      line_count: lineCount,
-      full_count: fullCount,
-      exception_count: exceptionCount,
-    };
-  });
+  let rows: InvoiceRow[];
+  try {
+    const [invoices, lines] = await Promise.all([
+      readAll<Invoice>(after => { let q = supabase.from('invoices').select('id,pharmacy_id,supplier,invoice_number,invoice_date,gross_total,created_at').is('deleted_at', null).order('id').limit(500); if (after) q = q.gt('id', after); return q; }),
+      readAll<Line>(after => { let q = supabase.from('invoice_lines').select('id,invoice_id,qty_ordered,qty_received,flags,credit_request_id').order('id').limit(500); if (after) q = q.gt('id', after); return q; }),
+    ]);
+    rows = summarise(invoices, lines, []).receipts.map(inv => ({
+      id: inv.id, supplier: inv.supplier, invoice_number: inv.invoice_number,
+      invoice_date: inv.invoice_date, gross_total: Number(inv.gross_total),
+      line_count: inv.lines, full_count: inv.fullCount, exception_count: inv.lines - inv.fullCount,
+    })).sort((a,b) => b.invoice_date.localeCompare(a.invoice_date));
+  } catch { return <ErrorState message="Could not load all invoices and receipt lines. Refresh to try again; no partial totals are shown." />; }
+  if (!rows.length) return <EmptyState />;
 
   return (
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-header-title">Deliveries</h1>
+          <h1 className="page-header-title">Invoices &amp; checks</h1>
           <p className="page-header-subtitle">
-            {raw.length} invoice{raw.length === 1 ? '' : 's'}
+            {rows.length} invoice{rows.length === 1 ? '' : 's'}
           </p>
         </div>
         <Link href="/upload" className="btn btn-secondary">Upload PDFs</Link>
@@ -63,7 +50,7 @@ function EmptyState() {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-header-title">Deliveries</h1>
+          <h1 className="page-header-title">Invoices &amp; checks</h1>
           <p className="page-header-subtitle">Upload an invoice to start reconciling</p>
         </div>
       </div>
@@ -88,7 +75,7 @@ function EmptyState() {
           <path d="M14 3v6h6" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
         <h2 style={{ fontSize: '15px', fontWeight: 600, margin: 0, marginBottom: '0.375rem' }}>
-          No deliveries yet
+          No invoices yet
         </h2>
         <p style={{ fontSize: '12px', color: 'var(--muted)', margin: '0 auto 1.5rem', maxWidth: '24rem', lineHeight: 1.5 }}>
           Upload a wholesaler invoice PDF and Reckon will pull out every

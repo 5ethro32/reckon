@@ -1,0 +1,33 @@
+import { NextResponse, type NextRequest } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
+import { parsePackBarcode } from '@/lib/receiving';
+
+export async function POST(request: NextRequest) {
+  const db = await createClient();
+  if (!(await db.auth.getUser()).data.user) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
+  try {
+    const body = await request.json();
+    const pack = parsePackBarcode(body.gtin ?? '');
+    const gtin = pack.gtin;
+    if (!Number.isInteger(body.quantity) || body.quantity < 1 || body.quantity > 100000) throw Error('Enter a whole number of packs between 1 and 100,000.');
+    const { data, error } = await db.rpc('record_pack_receipt', {
+      p_line_id: body.lineId, p_gtin: gtin, p_quantity: body.quantity,
+      p_event_id: body.eventId, p_confirm_mapping: body.confirmMapping === true,
+      p_batch: body.batch || pack.batch || null, p_expiry: body.expiry || pack.expiry || null, p_serial: body.serial || pack.serial || null,
+    });
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ ok: true, receipt: data });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid receipt' }, { status: 400 });
+  }
+}
+
+export async function GET(request: NextRequest) {
+  const db=await createClient();
+  if(!(await db.auth.getUser()).data.user)return NextResponse.json({error:'Not signed in'},{status:401});
+  const lineId=request.nextUrl.searchParams.get('lineId');
+  if(!lineId)return NextResponse.json({error:'Choose an invoice product'},{status:400});
+  const {data,error}=await db.from('receipt_events').select('id,gtin,quantity,batch,expiry,serial,recorded_at,recorded_by').eq('invoice_line_id',lineId).order('recorded_at',{ascending:false}).limit(100);
+  if(error)return NextResponse.json({error:'Could not load receipt history'},{status:400});
+  return NextResponse.json({events:data});
+}

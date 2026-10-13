@@ -63,15 +63,19 @@ export async function PATCH(
     );
   }
 
-  if (typeof body.qty_received === 'number') {
-    update.qty_received = body.qty_received;
+  if ('qty_received' in body) {
+    const value = body.qty_received;
+    if (value !== null && (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)) {
+      return NextResponse.json({ error: 'Received quantity must be a non-negative whole number' }, { status: 400 });
+    }
+    update.qty_received = value;
   }
 
   if ('qty_returned' in body) {
     const v = body.qty_returned;
     if (v === null) {
       update.qty_returned = null;
-    } else if (typeof v === 'number' && v >= 0) {
+    } else if (typeof v === 'number' && Number.isSafeInteger(v) && v >= 0) {
       update.qty_returned = v;
     } else {
       return NextResponse.json(
@@ -131,47 +135,10 @@ export async function PATCH(
     );
   }
 
-  // Helper: retry the update without specific columns if Postgres complains
-  // they don't exist (means a migration hasn't been applied yet). We try
-  // hardest to land *something* rather than 500.
-  const skippedColumns: string[] = [];
-  let lastError: string | null = null;
-  let currentUpdate = { ...update };
-
-  while (Object.keys(currentUpdate).length > 0) {
-    const { error } = await supabase
-      .from('invoice_lines')
-      .update(currentUpdate)
-      .eq('id', id);
-
-    if (!error) {
-      lastError = null;
-      break;
-    }
-
-    lastError = error.message;
-    // Identify which column the DB is complaining about and drop it.
-    const missingColMatch = error.message.match(
-      /column "?([a-z_]+)"? (?:does not exist|of relation)/i
-    );
-    const missingCol = missingColMatch?.[1];
-    if (missingCol && missingCol in currentUpdate) {
-      skippedColumns.push(missingCol);
-      const { [missingCol]: _, ...rest } = currentUpdate;
-      void _;
-      currentUpdate = rest;
-      continue;
-    }
-    // Some other error — bail
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  if (lastError && Object.keys(currentUpdate).length === 0) {
-    return NextResponse.json(
-      { error: `Update failed — schema may be behind. ${lastError}` },
-      { status: 503 }
-    );
-  }
+  const { data: saved, error } = await supabase.from('invoice_lines')
+    .update(update).eq('id', id).select('id').maybeSingle();
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  if (!saved) return NextResponse.json({ error: 'Invoice line not found' }, { status: 404 });
 
   // Retroactive match: any exception flag (short / damaged / returned /
   // not_received) implies an expected credit. Fire the matcher to look for
@@ -191,10 +158,5 @@ export async function PATCH(
     });
   }
 
-  return NextResponse.json({
-    ok: true,
-    ...(skippedColumns.length > 0 && {
-      warning: `Some fields not saved (schema not migrated): ${skippedColumns.join(', ')}`,
-    }),
-  });
+  return NextResponse.json({ ok: true });
 }

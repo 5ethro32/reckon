@@ -973,3 +973,31 @@ a:hover {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
+
+/* Receiving overview: readable on the dispensary desktop and at the delivery bay. */
+.ops-heading { display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:1rem; margin-bottom:1.25rem; }
+.ops-muted { color:var(--muted); font-size:13px; line-height:1.6; }
+.ops-panel { padding:1.25rem; min-width:0; }
+.ops-panel h2 { font-size:17px; margin:0 0 .4rem; }
+.ops-panel h3 { font-size:15px; }
+.ops-metric { padding:1.25rem; display:flex; flex-direction:column; gap:.7rem; text-decoration:none; min-width:0; }
+.ops-metric > strong { font-size:29px; font-weight:600; letter-spacing:-.025em; }
+.ops-metric:hover { border-color:var(--muted); }
+.ops-list { list-style:none; padding:0; margin:1rem 0; }
+.ops-list li + li { border-top:1px solid var(--border); }
+.ops-receipt { padding:1rem 0; display:flex; align-items:center; justify-content:space-between; gap:1rem; text-decoration:none; min-height:64px; }
+.ops-receipt > div { display:flex; flex-direction:column; gap:.3rem; min-width:0; overflow-wrap:anywhere; }
+.ops-receipt:hover strong { text-decoration:underline; }
+.ops-empty { padding:1.5rem 0; color:var(--muted); font-size:14px; line-height:1.65; }
+.ops-suppliers { margin-top:1.5rem; }
+.operations-overview a:focus-visible { outline:3px solid var(--accent, #635bff); outline-offset:4px; }
+@media (max-width:600px) { .ops-panel { padding:1rem; } .ops-receipt { align-items:flex-start; flex-wrap:wrap; } .ops-metric { padding:1rem; } .ops-heading .btn { min-height:44px; } }
+
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+
+.credit-resolution-dialog { width:min(32rem, calc(100vw - 2rem)); max-height:calc(100dvh - 2rem); overflow:auto; padding:1.5rem; border:1px solid var(--border); border-radius:.75rem; background:var(--card-bg); color:var(--foreground); }
+.credit-resolution-dialog::backdrop { background:rgba(0,0,0,.45); }
+.credit-resolution-dialog h2 { margin:0; font-size:20px; }
+.credit-resolution-dialog label { display:block; margin:1rem 0 .4rem; font-size:14px; font-weight:500; }
+.credit-resolution-dialog input, .credit-resolution-dialog textarea { width:100%; }
+.credit-resolution-actions { display:flex; gap:.75rem; justify-content:flex-end; flex-wrap:wrap; margin-top:1.25rem; }

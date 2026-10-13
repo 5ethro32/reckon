@@ -42,6 +42,7 @@ export async function PATCH(
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   const update: Record<string, unknown> = {};
   if (typeof body.status === 'string') {
     if (!ALLOWED_STATUSES.includes(body.status as Status)) {
@@ -72,7 +73,7 @@ export async function PATCH(
   // Confirm the row exists and is accessible (RLS enforces pharmacy scope)
   const { data: existing, error: fetchError } = await supabase
     .from('credit_requests')
-    .select('id, status')
+    .select('id, status, external_credit_note_number')
     .eq('id', id)
     .maybeSingle();
 
@@ -81,6 +82,23 @@ export async function PATCH(
   }
   if (!existing) {
     return NextResponse.json({ error: 'Credit request not found' }, { status: 404 });
+  }
+
+  if (existing.status === 'resolved' && 'external_credit_note_number' in update) {
+    return NextResponse.json({ error: 'Evidence on a resolved claim cannot be replaced or cleared' }, { status: 409 });
+  }
+  if (update.status === 'sent' && existing.status === 'draft') {
+    update.sent_at = new Date().toISOString();
+    update.sent_by = user.id;
+  }
+  if (update.status === 'resolved') {
+    const reference = typeof update.external_credit_note_number === 'string'
+      ? update.external_credit_note_number.trim() : existing.external_credit_note_number?.trim();
+    if (!reference) return NextResponse.json({ error: 'Enter the supplier credit reference before resolving the claim' }, { status: 400 });
+    update.external_credit_note_number = reference;
+    update.resolved_at = new Date().toISOString();
+  } else if (update.status && existing.status === 'resolved') {
+    return NextResponse.json({ error: 'A resolved claim cannot be reopened by changing its status' }, { status: 409 });
   }
 
   const { error: updateError } = await supabase

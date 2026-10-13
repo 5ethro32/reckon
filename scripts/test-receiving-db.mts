@@ -1,0 +1,50 @@
+import { PGlite } from '@electric-sql/pglite';
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+const db=new PGlite();
+const user='00000000-0000-4000-8000-000000000001',tenant='00000000-0000-4000-8000-000000000002',otherTenant='00000000-0000-4000-8000-000000000003';
+const invoice='00000000-0000-4000-8000-000000000004',line='00000000-0000-4000-8000-000000000005',otherLine='00000000-0000-4000-8000-000000000006';
+await db.exec(`create schema auth; create role anon;create role authenticated;create table auth.users(id uuid primary key);insert into auth.users values('${user}');
+create function auth.uid() returns uuid language sql as $$ select '${user}'::uuid $$;
+create table pharmacies(id uuid primary key);insert into pharmacies values('${tenant}'),('${otherTenant}');
+create function user_belongs_to_pharmacy(id uuid) returns boolean language sql as $$select id='${tenant}'::uuid$$;
+create table invoices(id uuid primary key,pharmacy_id uuid,supplier text,deleted_at timestamptz);
+insert into invoices values('${invoice}','${tenant}','Aver',null);
+create table invoice_lines(id uuid primary key,invoice_id uuid,pharmacy_id uuid,supplier_sku text,description text,pack_size text,qty_ordered integer,qty_received integer,flags jsonb);
+insert into invoice_lines values('${line}','${invoice}','${tenant}','SKU','Tablets','28',10,null,'[]'),('${otherLine}','${invoice}','${otherTenant}','SKU','Tablets','28',10,null,'[]');`);
+await db.exec(await fs.readFile(new URL('../supabase/migrations/0009_pack_receiving.sql',import.meta.url),'utf8'));
+const uuid=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+async function record(event:number,qty=1,confirmed=true,target=line,barcode='04006381333931',serial:string|null=null){return db.query(`select record_pack_receipt($1,$2,$3,$4,$5,null,null,$6) as receipt`,[target,barcode,qty,uuid(event),confirmed,serial]);}
+await assert.rejects(record(1,1,false),/Confirm/);
+await assert.rejects(record(1,1,true,otherLine),/not available/);
+await assert.rejects(record(1,1,true,line,'04006381333932'),/check digit/);
+await record(1,2);
+await record(1,2); // identical retry must not double count
+assert.equal((await db.query<{qty_received:number}>('select qty_received from invoice_lines where id=$1',[line])).rows[0].qty_received,2);
+await assert.rejects(record(1,3),/reference already used/);
+await assert.rejects(record(2,99),/exceeds/);
+await record(3,1,true,line,'04006381333931','serial-one');
+await assert.rejects(record(4,1,true,line,'04006381333931','serial-one'),/already recorded/);
+await assert.rejects(record(5,2,true,line,'04006381333931','serial-two'),/one pack/);
+await db.query("update invoice_lines set description='Different tablets' where id=$1",[line]);
+await assert.rejects(record(6),/different product or pack/);
+await db.query("update invoice_lines set description='Tablets',pack_size='56' where id=$1",[line]);
+await assert.rejects(record(6),/different product or pack/);
+await db.query("update invoice_lines set pack_size='28',flags='[\"damage\"]' where id=$1",[line]);
+await assert.rejects(record(7),/exception/);
+const mapping={supplier:'Other',supplier_sku:'ABC',gtin:'04006381333931',description:'Product',pack_size:'28',ampp_id:'123456'};
+await db.query('select import_barcode_catalog($1,$2)',[line,JSON.stringify([mapping])]);
+await db.query('select import_barcode_catalog($1,$2)',[line,JSON.stringify([mapping])]);
+await assert.rejects(db.query('select import_barcode_catalog($1,$2)',[line,JSON.stringify([{...mapping,pack_size:'56'}])]),/conflicts/);
+await assert.rejects(db.query('select import_barcode_catalog($1,$2)',[line,JSON.stringify([{...mapping,description:'Different product'}])]),/conflicts/);
+await assert.rejects(db.query('select import_barcode_catalog($1,$2)',[otherLine,JSON.stringify([mapping])]),/not available/);
+// A later conflict rolls back earlier rows from the same import.
+await assert.rejects(db.query('select import_barcode_catalog($1,$2)',[line,JSON.stringify([{...mapping,supplier:'Another'},{...mapping,pack_size:'56'}])]),/conflicts/);
+assert.equal((await db.query<{count:number}>("select count(*)::int as count from product_barcodes where supplier='Another'")).rows[0].count,0);
+assert.equal((await db.query<{count:number}>('select count(*)::int as count from receipt_events')).rows[0].count,2);
+// Non-owner browser clients cannot mutate audit rows or mappings directly.
+await db.exec('grant usage on schema public to authenticated; grant select,insert,update,delete on product_barcodes,receipt_events to authenticated; set role authenticated;');
+assert.equal((await db.query('delete from receipt_events where id=$1 returning id',[uuid(1)])).rows.length,0);
+await db.exec('reset role');
+await db.close();
+console.log('Receiving SQL: idempotency, tenant isolation, serial duplicate, pack mismatch, flags, import rollback and audit RLS passed');

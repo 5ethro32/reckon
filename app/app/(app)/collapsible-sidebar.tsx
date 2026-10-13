@@ -32,7 +32,8 @@ type NavLink = {
 
 const PRIMARY_LINKS: NavLink[] = [
   { id: 'dashboard',  label: 'Dashboard',  href: '/dashboard' },
-  { id: 'deliveries', label: 'Deliveries', href: '/invoices', matchPrefix: '/invoices' },
+  { id: 'deliveries', label: 'Invoices & checks', href: '/invoices', matchPrefix: '/invoices' },
+  { id: 'receiving', label: 'Uninvoiced deliveries', href: '/receiving' },
   { id: 'statements', label: 'Statements', href: '/statements', matchPrefix: '/statements' },
   { id: 'credits',    label: 'Credits',    href: '/credits' },
   { id: 'upload',     label: 'Upload',     href: '/upload' },
@@ -328,6 +329,7 @@ function NavItem({
         <Link
           href={link.href}
           aria-label={link.label}
+          aria-current={active ? 'page' : undefined}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -357,6 +359,7 @@ function NavItem({
     <Link
       href={link.href}
       className="sidebar-link"
+      aria-current={active ? 'page' : undefined}
       data-active={active ? 'true' : 'false'}
       style={{
         display: 'flex',
@@ -521,6 +524,7 @@ function NavIcon({ id, active }: { id: string; active: boolean }) {
           />
         </svg>
       );
+    case 'receiving':
     case 'deliveries':
       return (
         <svg style={cls} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke={stroke}>
