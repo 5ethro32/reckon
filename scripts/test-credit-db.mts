@@ -7,7 +7,7 @@ create table auth.users(id uuid primary key); create table storage.buckets(id te
 create table storage.objects(id uuid,bucket_id text,name text);
 create function storage.foldername(text) returns text[] language sql as $$ select string_to_array($1,'/') $$;
 create function auth.uid() returns uuid language sql as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;`);
-for(const f of readdirSync('supabase/migrations').filter(f=>/^000[1-8]_.*sql$|^001[02]_.*sql$/.test(f)).sort()) {
+for(const f of readdirSync('supabase/migrations').filter(f=>/^000[1-8]_.*sql$|^001[023]_.*sql$/.test(f)).sort()) {
  await db.exec(readFileSync('supabase/migrations/'+f,'utf8').replace(/create extension[^;]+;/g,''));
 }
 const user='00000000-0000-0000-0000-000000000001';
@@ -51,8 +51,18 @@ const before=Number((await db.query<{n:string}>('select count(*) n from credit_r
 await db.query('select create_credit_request_from_lines($1,$2)',[[freeLine],{supplier:'test',total_amount:12,email_to:'test@example.invalid'}]);
 await assert.rejects(db.query('select create_credit_request_from_lines($1,$2)',[[freeLine],{supplier:'test',total_amount:12}]));
 assert.equal(Number((await db.query<{n:string}>('select count(*) n from credit_requests')).rows[0].n),before+1);
+// The app's pence arithmetic must agree with the database for awkward partial credits.
+{
+ const { creditShare, creditValue } = await import('../app/lib/credit-amount.ts');
+ const inv=(await db.query<{id:string}>(`insert into invoices(pharmacy_id,supplier,invoice_number,invoice_date) values($1,'test',gen_random_uuid()::text,current_date) returning id`,[pharmacy])).rows[0].id;
+ for (const [n,gross,ordered,received] of [[1,10.03,2,1],[2,10.10,4,1],[3,0.05,3,1]] as const) {
+  const id=(await db.query<{id:string}>(`insert into invoice_lines(invoice_id,pharmacy_id,line_number,supplier_sku,description,qty_ordered,qty_received,unit_price,net,vat_rate,vat_amount,gross,flags) values($1,$2,$3,'p','Partial pack',$4,$5,1,$6,0,0,$6,'["short"]') returning id`,[inv,pharmacy,n,ordered,received,gross])).rows[0].id;
+  const total=creditValue(gross,creditShare({flags:['short'],qtyOrdered:ordered,qtyReceived:received,qtyReturned:null}));
+  await db.query('select create_credit_request_from_lines($1,$2)',[[id],{supplier:'test',total_amount:total,email_to:'test@example.invalid'}]);
+ }
+}
 const alien=await scenario('invoice',1);
 await db.exec(`select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000099',false);set role authenticated;`);
 assert.equal((await db.query<{x:string|null}>('select try_match_credit_row_safely($1) as x',[alien.row])).rows[0].x,null);
-console.log('PASS: actual migrations; amount-only and ambiguous credits stay open; exact references resolve once; cross-tenant access denied.');
+console.log('PASS: actual migrations; partial credits agree to the penny; amount-only and ambiguous credits stay open; exact references resolve once; cross-tenant access denied.');
 await db.close();

@@ -11,11 +11,10 @@
 
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { CREDIT_STATUSES as ALLOWED_STATUSES, canChangeCreditStatus, type CreditStatus as Status } from '@/lib/credit-status';
 
 export const runtime = 'nodejs';
 
-const ALLOWED_STATUSES = ['draft', 'sent', 'resolved', 'overdue', 'cancelled'] as const;
-type Status = (typeof ALLOWED_STATUSES)[number];
 
 export async function PATCH(
   request: NextRequest,
@@ -87,6 +86,9 @@ export async function PATCH(
   if (existing.status === 'resolved' && 'external_credit_note_number' in update) {
     return NextResponse.json({ error: 'Evidence on a resolved claim cannot be replaced or cleared' }, { status: 409 });
   }
+  if (typeof update.status === 'string' && !canChangeCreditStatus(existing.status as Status, update.status as Status)) {
+    return NextResponse.json({ error: `A ${existing.status} claim cannot be changed to ${update.status}` }, { status: 409 });
+  }
   if (update.status === 'sent' && existing.status === 'draft') {
     update.sent_at = new Date().toISOString();
     update.sent_by = user.id;
@@ -104,7 +106,9 @@ export async function PATCH(
   const { error: updateError } = await supabase
     .from('credit_requests')
     .update(update)
-    .eq('id', id);
+    .eq('id', id)
+    // Only apply the change if nobody moved the claim on since it was read.
+    .eq('status', existing.status);
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });

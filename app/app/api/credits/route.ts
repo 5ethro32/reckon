@@ -1,4 +1,4 @@
-import { creditFraction, creditValue } from '@/lib/credit-amount';
+import { creditShare, creditValue } from '@/lib/credit-amount';
 /**
  * /api/credits
  *
@@ -280,10 +280,10 @@ export async function POST(request: NextRequest) {
 
   try {
     for (const line of emailLines) {
-      const fraction = creditFraction({ flags: line.flags, qtyOrdered: line.qtyOrdered, qtyReceived: line.qtyReceived, qtyReturned: line.qtyReturned ?? null });
-      line.gross = creditValue(line.gross, fraction);
-      if (line.net !== undefined) line.net = creditValue(line.net, fraction);
-      if (line.vatAmount !== undefined) line.vatAmount = creditValue(line.vatAmount, fraction);
+      const share = creditShare({ flags: line.flags, qtyOrdered: line.qtyOrdered, qtyReceived: line.qtyReceived, qtyReturned: line.qtyReturned ?? null });
+      line.gross = creditValue(line.gross, share);
+      if (line.net !== undefined) line.net = creditValue(line.net, share);
+      if (line.vatAmount !== undefined) line.vatAmount = creditValue(line.vatAmount, share);
     }
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid credit quantities' }, { status: 422 });
