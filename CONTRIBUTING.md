@@ -5,10 +5,8 @@ pharmacies and welcomes both bug reports and code contributions.
 
 ## Reporting a bug
 
-The fastest way to report a bug is to open a GitHub issue. The repository
-has an automated Claude Code agent wired up that will read your issue, look
-at the codebase, and where possible open a pull request with a proposed fix.
-A human (the maintainer) reviews every PR before it merges.
+The fastest way to report a bug is to open a GitHub issue. The maintainer
+reviews every issue and pull request.
 
 When opening an issue, please:
 
@@ -33,20 +31,6 @@ paste the following into issue bodies, comments, or screenshots:
   share auth-related diagnostics, email the maintainer directly.
 - **Personal data of staff / pharmacists** — names and roles are fine, but
   not full contact details, home addresses, etc.
-
-## Asking the AI agent for help
-
-Tag `@claude` in any issue or PR comment to invoke the Claude agent. It can:
-
-- Investigate a bug and propose a fix as a PR
-- Explain how a piece of the codebase works
-- Add tests for code that lacks them
-
-It will **not** be able to:
-
-- Read your live database or Supabase project (the agent has no env vars)
-- Touch authentication, secrets, or env files
-- Push commits without going through the PR review flow
 
 ## Submitting a pull request
 

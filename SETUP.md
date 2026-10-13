@@ -41,7 +41,7 @@ For a new database, apply every top-level SQL file in `supabase/migrations/` in 
 find supabase/migrations -maxdepth 1 -name '*.sql' | sort
 ```
 
-Use the Supabase SQL editor to run each file, or your normal migration runner. Do not also apply files under `chunks/`; those are alternative partial scripts. Keep a record of applied migrations. For an existing deployment, back up first and apply only outstanding migrations in order. Stop and investigate errors; do not assume an “already exists” error means the whole migration succeeded.
+Use the Supabase SQL editor to run each file, or your normal migration runner. Keep a record of applied migrations. For an existing deployment, back up first and apply only outstanding migrations in order. Stop and investigate errors; do not assume an “already exists” error means the whole migration succeeded.
 
 ### Configure auth
 

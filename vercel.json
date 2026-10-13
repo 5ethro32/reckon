@@ -3,5 +3,8 @@
   "buildCommand": "cd app && npm run build",
   "installCommand": "npm install",
   "outputDirectory": "app/.next",
-  "framework": "nextjs"
+  "framework": "nextjs",
+  "regions": [
+    "dub1"
+  ]
 }

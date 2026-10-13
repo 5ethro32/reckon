@@ -38,7 +38,7 @@ Uploaded documents and application records use your configured Supabase project.
 
 Reckon helps staff record what arrived and follow up financial differences. It does not replace a dispensing system or prove current shelf stock: dispensing, returns, transfers and adjustments also change stock. Scottish reimbursement analysis requires Scottish tariff and payment rules, beyond invoice reconciliation.
 
-Read the [feature review](./docs/feature-review.md) for supported workflows, known gaps and evidence.
+See the [roadmap](./docs/roadmap.md) for what is supported today and what comes next.
 
 ## NHS dm+d
 

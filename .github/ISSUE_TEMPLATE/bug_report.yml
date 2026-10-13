@@ -39,9 +39,3 @@ body:
     attributes:
       label: Screenshot (optional)
       description: Drag and drop or paste an image. Redact any personal or invoice data first.
-  - type: markdown
-    attributes:
-      value: |
-        ---
-        Tip — once submitted, you can comment `@claude` to invoke the
-        AI agent, which may take a look and open a fix as a pull request.
