@@ -43,7 +43,8 @@ export function parsePhoenixStatement(text: string): ParsedStatement {
     customerAccount: head?.[1],
     customerName: text.match(/Page No:\s*\n([^\n]+)\n\s*([^\n]*\))/)?.slice(1, 3).map((x) => x.trim()).join(' ').replace(/\s+/g, ' '),
     rows,
-    totals: { net: invTotal, vat: 0, total: invTotal },
+    // The printed TOTAL OUTSTANDING when present; otherwise the sum of invoices and credits.
+    totals: { net: invTotal, vat: 0, total: Number.isFinite(closing) ? closing : invTotal },
     totalsMatch,
     warnings,
   };

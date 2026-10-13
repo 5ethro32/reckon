@@ -11,11 +11,12 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     if (typeof body?.invoiceId !== 'string') throw Error('invoiceId is required.');
     const { gtin } = parsePackBarcode(body.gtin ?? '');
-    const { data: invoice, error: invoiceError } = await db.from('invoices').select('id, supplier').eq('id', body.invoiceId).is('deleted_at', null).maybeSingle();
+    const { data: invoice, error: invoiceError } = await db.from('invoices').select('id, supplier, pharmacy_id').eq('id', body.invoiceId).is('deleted_at', null).maybeSingle();
     if (invoiceError || !invoice) throw Error('Invoice not found.');
     const [lines, mappings, dmd] = await Promise.all([
       db.from('invoice_lines').select('id, description, pack_size, supplier_sku, gtin').eq('invoice_id', invoice.id).limit(500),
-      db.from('product_barcodes').select('supplier_sku').eq('supplier', invoice.supplier).eq('gtin', gtin),
+      // Only this pharmacy's mappings: a user in several pharmacies can read all of theirs.
+      db.from('product_barcodes').select('supplier_sku').eq('pharmacy_id', invoice.pharmacy_id).eq('supplier', invoice.supplier).eq('gtin', gtin),
       db.from('dmd_packs').select('name, generic_name, pack_qty, gtin_end').eq('gtin', gtin).limit(20),
     ]);
     if (lines.error) throw Error(lines.error.message);
