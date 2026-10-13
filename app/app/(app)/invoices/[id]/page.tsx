@@ -196,7 +196,7 @@ export default async function InvoiceDetailPage({
         )}
       </div>
 
-      {lines && <PackReceiving lines={lines} />}
+      {lines && <PackReceiving invoiceId={invoice.id} lines={lines} />}
       {/* Lines tick-off + sticky action bar */}
       {lines && <LinesEditor key={JSON.stringify(lines)} invoiceId={invoice.id} initialLines={lines} />}
     </div>

@@ -1,7 +1,7 @@
 /**
  * Aver Generics invoice parser.
  *
- * Aver invoices use this column layout:
+ * Two layouts are supported: the current one (see parseCurrentLine) and the earlier
  *   Bin | Qty | Description | Unit Price | Net | Tax
  *
  * Sample line after PDF text extraction:
@@ -98,6 +98,54 @@ function parseLine(line: string): InvoiceLine | null {
 }
 
 /**
+ * Current Aver invoice line (2026 layout, from Carlos):
+ *   Bin | Description / Pack | Qty | Unit Price | Net | VAT Rate | Tax
+ * After text extraction the pack size and quantity are glued together, and a controlled drug
+ * schedule marker may sit between them:
+ *   "C-1409Alfacalcidol Caps 0.5mcg / 306£1.52£9.1220.0%£1.82"     pack 30, qty 6
+ *   "X06-01Co-Codamol Tabs 8/500mg / 100   CD51£2.32£2.3220.0%£0.46" pack 100, CD5, qty 1
+ *   "C-1419Methocarbamol Tabs 750mg 100s1£2.70£2.7020.0%£0.54"      pack 100s, qty 1 (no slash)
+ *   "X04-05Pregabalin Caps 25mg 56s ( CD3 )1£0.66£0.6620.0%£0.13"   pack 56s, CD3, qty 1
+ * Quantity is recovered from net / unit price and must be a suffix of the glued digits.
+ */
+function parseCurrentLine(line: string): InvoiceLine | null {
+  const m = line.trim().match(
+    /^([A-Z]-\d{4}|[A-Z]\d{2}-\d{2})([A-Za-z].*?)£(\d+\.\d{2})£(\d+\.\d{2})(\d+(?:\.\d+)?)%£(\d+\.\d{2})$/
+  );
+  if (!m) return null;
+  const [, bin, body, unitStr, netStr, rateStr, taxStr] = m;
+  const unitPrice = toNum(unitStr!), net = toNum(netStr!), vatAmount = toNum(taxStr!);
+  // The quantity is glued to the end of the description; net / unit price says how many digits.
+  if (unitPrice <= 0) return null;
+  const qty = Math.round(net / unitPrice);
+  if (qty < 1 || Math.abs(qty * unitPrice - net) > 0.011) return null;
+  let rest = body!.replace(/\s+$/, '');
+  if (!rest.endsWith(String(qty))) return null;
+  rest = rest.slice(0, -String(qty).length).replace(/\s+$/, '');
+  // Controlled drug schedule marker: "CD5" or "( CD3 )" just before the quantity.
+  let cd: string | undefined;
+  const cdMatch = rest.match(/\s*\(?\s*CD([1-5])\s*\)?$/);
+  if (cdMatch) { cd = `CD${cdMatch[1]}`; rest = rest.slice(0, cdMatch.index).replace(/\s+$/, ''); }
+  // Pack size: after the last " / " when present ("Tabs 5mg / 28"), else the last word ("28s", "140dse").
+  let name: string, pack: string;
+  const slash = rest.lastIndexOf(' / ');
+  if (slash >= 0) { name = rest.slice(0, slash).trim(); pack = rest.slice(slash + 3).trim(); }
+  else { const w = rest.match(/^(.*\S)\s+(\S+)$/); if (!w) return null; name = w[1]!.trim(); pack = w[2]!; }
+  if (!name || !pack) return null;
+  return {
+    supplierSku: bin!,
+    description: `${name} / ${pack}${cd ? ` ${cd}` : ''}`,
+    packSize: pack,
+    qty,
+    unitPrice,
+    net,
+    vatRate: Number(rateStr),
+    vatAmount,
+    gross: +(net + vatAmount).toFixed(2),
+  };
+}
+
+/**
  * Aver headers are rendered as side-by-side columns but pdf-parse reads them
  * top-to-bottom, producing all labels first then all values. We match a known
  * label sequence and then collect the next N non-blank lines as values.
@@ -108,7 +156,8 @@ function extractAverHeaderBlock(text: string): {
   accountNumber: string;
 } {
   // The label trio always appears in this exact order on Aver invoices.
-  const labelBlock = text.match(/Invoice No\.\s*\n\s*Invoice\/Tax Date\s*\n\s*Account No\.\s*\n([\s\S]+?)(?=\n[A-Z][a-z]|\nBin\b)/);
+  // The 2026 layout adds a "Payment Due" label (and value) after Account No.
+  const labelBlock = text.match(/Invoice No\.\s*\n\s*Invoice\/Tax Date\s*\n\s*Account No\.\s*\n(?:\s*Payment Due\s*\n)?([\s\S]+?)(?=\n[A-Z][a-z]|\nBin)/);
   const empty = { invoiceNumber: '', invoiceDate: '', accountNumber: '' };
   if (!labelBlock?.[1]) return empty;
 
@@ -163,11 +212,23 @@ export function parseAverInvoice(text: string): ParsedInvoice {
   const allLines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
   const lines: InvoiceLine[] = [];
 
-  for (const raw of allLines) {
+  const BIN = /^([A-Z]-\d{4}|[A-Z]\d{2}-\d{2})/;
+  const AMOUNTS = /£\d+(?:\.\d+)?£\d+(?:\.\d+)?(?:\d+(?:\.\d+)?%)?£\d+(?:\.\d+)?$/;
+  for (let i = 0; i < allLines.length; i++) {
+    let raw = allLines[i]!;
     // Filter: starts with an Aver-style bin code AND contains the trio of £ amounts.
-    if (!/^([A-Z]-\d{4}|[A-Z]\d{2}-\d{2})/.test(raw)) continue;
-    if (!/£\d+(?:\.\d+)?£\d+(?:\.\d+)?£\d+(?:\.\d+)?$/.test(raw)) continue;
-    const parsed = parseLine(raw);
+    if (!BIN.test(raw)) continue;
+    // A long description can wrap: "…/ 100", "CD5", "4£4.29£17.16…". Join up to three continuation lines.
+    if (!AMOUNTS.test(raw)) {
+      let joined = raw;
+      for (let j = 1; j <= 3 && i + j < allLines.length && !BIN.test(allLines[i + j]!); j++) {
+        joined = `${joined} ${allLines[i + j]}`;
+        if (AMOUNTS.test(joined)) { raw = joined; i += j; break; }
+      }
+    }
+    const current = /£\d+\.\d{2}£\d+\.\d{2}\d+(?:\.\d+)?%£\d+\.\d{2}$/.test(raw);
+    if (!current && !/£\d+(?:\.\d+)?£\d+(?:\.\d+)?£\d+(?:\.\d+)?$/.test(raw)) continue;
+    const parsed = current ? parseCurrentLine(raw) : parseLine(raw);
     if (parsed) {
       lines.push(parsed);
     } else {
