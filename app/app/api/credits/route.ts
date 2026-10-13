@@ -1,3 +1,4 @@
+import { creditFraction, creditValue } from '@/lib/credit-amount';
 /**
  * /api/credits
  *
@@ -82,51 +83,24 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   const invoiceIds = Array.isArray(body.invoice_ids) ? (body.invoice_ids as string[]) : [];
   const requestedLineIds = Array.isArray(body.invoice_line_ids)
     ? (body.invoice_line_ids as string[])
     : [];
-  if (requestedLineIds.length === 0) {
+  if (requestedLineIds.length === 0 || requestedLineIds.length > 200 || requestedLineIds.some(id => typeof id !== 'string')) {
     return NextResponse.json({ error: 'invoice_line_ids is required' }, { status: 400 });
   }
 
-  // Load all the lines in one go. RLS limits us to the user's pharmacy.
-  //
-  // Schema-compatibility fallback: if a migration column doesn't exist yet
-  // (e.g. self-hoster hasn't applied 0003 / 0005), the SELECT errors out.
-  // We progressively drop unknown columns and retry until something works.
-  // Downstream code defaults missing fields to null which is correct.
-  const FULL_SELECT = `id, invoice_id, supplier_sku, description, pack_size,
-     qty_ordered, qty_received, qty_returned, net, vat_amount, gross,
-     flags, notes, damage_disposition, return_disposition, credit_request_id,
-     invoices ( id, supplier, invoice_number, invoice_date, pharmacy_id )`;
-  const FALLBACK_SELECT_NO_0005 = `id, invoice_id, supplier_sku, description, pack_size,
-     qty_ordered, qty_received, net, vat_amount, gross,
-     flags, notes, damage_disposition, credit_request_id,
-     invoices ( id, supplier, invoice_number, invoice_date, pharmacy_id )`;
-  const FALLBACK_SELECT_NO_0003 = `id, invoice_id, supplier_sku, description, pack_size,
-     qty_ordered, qty_received, net, vat_amount, gross,
-     flags, notes, credit_request_id,
-     invoices ( id, supplier, invoice_number, invoice_date, pharmacy_id )`;
-
-  let lines: Array<Record<string, unknown>> | null = null;
-  for (const sel of [FULL_SELECT, FALLBACK_SELECT_NO_0005, FALLBACK_SELECT_NO_0003]) {
-    const r = await supabase.from('invoice_lines').select(sel).in('id', requestedLineIds);
-    if (!r.error) {
-      lines = (r.data as unknown as Array<Record<string, unknown>>) ?? null;
-      break;
-    }
-    // If error is about a missing column, fall through to a leaner SELECT.
-    if (!/column .*does not exist/i.test(r.error.message)) {
-      return NextResponse.json({ error: r.error.message }, { status: 500 });
-    }
-  }
-  if (!lines) {
-    return NextResponse.json(
-      { error: 'Could not load invoice lines — apply pending migrations.' },
-      { status: 500 }
-    );
-  }
+  // Require the current schema so evidence fields cannot silently disappear.
+  const { data: rows, error: readError } = await supabase.from('invoice_lines').select(`
+    id, invoice_id, supplier_sku, description, pack_size,
+    qty_ordered, qty_received, qty_returned, net, vat_amount, gross,
+    flags, notes, damage_disposition, return_disposition, credit_request_id, credited_via_statement_line_id,
+    invoices ( id, supplier, invoice_number, invoice_date, pharmacy_id, deleted_at )
+  `).in('id', requestedLineIds);
+  if (readError) return NextResponse.json({ error: readError.message }, { status: 400 });
+  const lines = rows as unknown as Array<Record<string, unknown>>;
   if (!lines || lines.length !== requestedLineIds.length) {
     return NextResponse.json(
       { error: 'One or more lines not found or not accessible' },
@@ -141,6 +115,7 @@ export async function POST(request: NextRequest) {
     invoice_number: string;
     invoice_date: string;
     pharmacy_id: string;
+    deleted_at: string | null;
   };
   type LineJoin = (typeof lines)[number] & { invoices: InvoiceJoin | InvoiceJoin[] | null };
 
@@ -149,7 +124,7 @@ export async function POST(request: NextRequest) {
 
   for (const raw of lines as LineJoin[]) {
     const inv = Array.isArray(raw.invoices) ? raw.invoices[0] : raw.invoices;
-    if (!inv) {
+    if (!inv || inv.deleted_at) {
       return NextResponse.json(
         { error: 'Line missing parent invoice' },
         { status: 422 }
@@ -168,6 +143,7 @@ export async function POST(request: NextRequest) {
         { status: 422 }
       );
     }
+    if (raw.credited_via_statement_line_id) return NextResponse.json({ error: 'A selected line is already credited' }, { status: 409 });
     suppliers.add(inv.supplier);
     if (raw.credit_request_id) {
       linkedCreditRequestIds.add(raw.credit_request_id as string);
@@ -180,6 +156,12 @@ export async function POST(request: NextRequest) {
     );
   }
   const supplier = Array.from(suppliers)[0]!;
+
+  if (linkedCreditRequestIds.size) {
+    const { data: linked, error } = await supabase.from('credit_requests').select('id,status').in('id', [...linkedCreditRequestIds]);
+    if (error || linked?.length !== linkedCreditRequestIds.size) return NextResponse.json({ error: 'Could not verify existing claims' }, { status: 409 });
+    if (linked.some(r => r.status === 'resolved')) return NextResponse.json({ error: 'A selected line is already settled' }, { status: 409 });
+  }
 
   // Optional: sanity check invoice_ids if provided
   if (invoiceIds.length > 0) {
@@ -206,8 +188,7 @@ export async function POST(request: NextRequest) {
   // credit_request, AND that request covers EXACTLY this set (no extras),
   // we rebuild the mailto URL and return — no DB churn. Idempotent.
   //
-  // Otherwise, cancel any open credit_requests that overlap with our
-  // requested lines, unlink their lines, and create a fresh request.
+  // Other overlaps require explicit review; never detach an existing claim.
   if (linkedCreditRequestIds.size === 1) {
     const existingId = Array.from(linkedCreditRequestIds)[0]!;
 
@@ -226,7 +207,7 @@ export async function POST(request: NextRequest) {
         .select('id, status, email_to, email_subject, email_body')
         .eq('id', existingId)
         .maybeSingle();
-      if (existing && existing.status !== 'cancelled') {
+      if (existing && ['draft','sent','overdue'].includes(existing.status)) {
         const { url: mailtoUrl } = buildMailto({
           to: existing.email_to as string,
           subject: existing.email_subject as string,
@@ -241,20 +222,8 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Different (or partially-overlapping) set — cancel the affected requests
-  // and unlink their lines, so we can create a fresh request below.
   if (linkedCreditRequestIds.size > 0) {
-    const idsToCancel = Array.from(linkedCreditRequestIds);
-    await supabase
-      .from('credit_requests')
-      .update({ status: 'cancelled' })
-      .in('id', idsToCancel)
-      .in('status', ['draft', 'sent', 'overdue']);
-    // Unlink the cancelled-request's lines so they're free to be re-chased.
-    await supabase
-      .from('invoice_lines')
-      .update({ credit_request_id: null })
-      .in('credit_request_id', idsToCancel);
+    return NextResponse.json({ error: 'Some lines already belong to another claim. Review that claim instead of combining or replacing it.' }, { status: 409 });
   }
 
   // ---------------------------------------------------------------------
@@ -309,6 +278,17 @@ export async function POST(request: NextRequest) {
     };
   });
 
+  try {
+    for (const line of emailLines) {
+      const fraction = creditFraction({ flags: line.flags, qtyOrdered: line.qtyOrdered, qtyReceived: line.qtyReceived, qtyReturned: line.qtyReturned ?? null });
+      line.gross = creditValue(line.gross, fraction);
+      if (line.net !== undefined) line.net = creditValue(line.net, fraction);
+      if (line.vatAmount !== undefined) line.vatAmount = creditValue(line.vatAmount, fraction);
+    }
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid credit quantities' }, { status: 422 });
+  }
+
   // Round all totals to 2dp to avoid floating-point display weirdness in the email
   const totalAmount = +emailLines.reduce((sum, l) => sum + l.gross, 0).toFixed(2);
   const netTotal = +emailLines
@@ -338,49 +318,15 @@ export async function POST(request: NextRequest) {
     body: emailBody,
   });
 
-  // Insert credit_request row
-  const sentAt = new Date().toISOString();
-  const { data: inserted, error: insertError } = await supabase
-    .from('credit_requests')
-    .insert({
-      pharmacy_id: pharmacyId,
-      supplier,
-      status: 'sent',
-      total_amount: Number(totalAmount.toFixed(2)),
-      email_to: emailTo,
-      email_subject: subject,
-      email_body: emailBody,
-      sent_at: sentAt,
-      sent_by: user.id,
-    })
-    .select('id')
-    .single();
-
-  if (insertError || !inserted) {
-    return NextResponse.json(
-      { error: `Could not create credit request: ${insertError?.message ?? 'unknown'}` },
-      { status: 500 }
-    );
-  }
-
-  // Link the lines to this credit_request
-  const { error: linkError } = await supabase
-    .from('invoice_lines')
-    .update({ credit_request_id: inserted.id })
-    .in('id', requestedLineIds);
-
-  if (linkError) {
-    // Roll back the credit_request — orphaned rows are confusing later
-    await supabase.from('credit_requests').delete().eq('id', inserted.id);
-    return NextResponse.json(
-      { error: `Could not link lines to credit request: ${linkError.message}` },
-      { status: 500 }
-    );
-  }
+  const { data: claimId, error: insertError } = await supabase.rpc('create_credit_request_from_lines', {
+    p_line_ids: requestedLineIds,
+    p_payload: { supplier, total_amount: totalAmount, email_to: emailTo, email_subject: subject, email_body: emailBody },
+  });
+  if (insertError || !claimId) return NextResponse.json({ error: insertError?.message ?? 'Could not create claim' }, { status: 409 });
+  const inserted = { id: claimId as string };
 
   // Retroactive match: if a CRED row on a prior statement already matches
-  // this credit_request's amount, link them now and mark the credit_request
-  // as resolved. Without this, credit_requests created AFTER their
+  // this credit request by reference and amount, link it and mark it resolved. Without this, credit_requests created AFTER their
   // statement was uploaded stay forever in 'sent' status. The RPC is
   // idempotent + best-effort — if it fails we still return the credit
   // request so the user can email the supplier.
@@ -419,7 +365,7 @@ export async function GET() {
        invoice_lines ( id, supplier_sku, description, gross, flags, invoice_id,
                        invoices ( id, invoice_number, invoice_date ) )`
     )
-    .in('status', ['sent', 'overdue'])
+    .in('status', ['draft', 'sent', 'overdue'])
     .order('sent_at', { ascending: false, nullsFirst: false });
 
   if (error) {

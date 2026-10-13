@@ -5,9 +5,9 @@ This guide walks you through running your own copy of Reckon. **It requires tech
 ## Prerequisites
 
 - A GitHub account
-- Node.js 20 or newer (`node --version`)
-- A Supabase account ([supabase.com](https://supabase.com), free tier works)
-- A Vercel account ([vercel.com](https://vercel.com), free tier works)
+- A supported Node.js LTS version compatible with the versions in `package.json` (`node --version`)
+- A Supabase account ([supabase.com](https://supabase.com), check the current plan limits and permitted use)
+- A Vercel account ([vercel.com](https://vercel.com), check the current plan limits and permitted use)
 - An email address you can sign in with
 
 ## 1. Clone the repo
@@ -30,19 +30,18 @@ npm install
 ### Create a project
 
 1. Go to [supabase.com/dashboard](https://supabase.com/dashboard) and create a new project.
-2. Pick the **eu-west-2 (London)** region — keeps your data in the UK.
+2. Pick the **eu-west-2 (London)** region for the database location; separately check the locations and terms of other services.
 3. Wait a couple of minutes for the project to provision.
 
 ### Run the migrations
 
-Open the SQL editor in your Supabase dashboard. Run these files **in order**, copy-paste each one and click Run:
+For a new database, apply every top-level SQL file in `supabase/migrations/` in filename order. Inspect the list from your checkout:
 
-1. `supabase/migrations/0001_initial_schema.sql`
-2. `supabase/migrations/0002_credits_and_suppliers.sql`
-3. `supabase/migrations/0003_damage_disposition_and_line_notes.sql`
-4. `supabase/migrations/0004_user_profile_and_signup.sql`
+```bash
+find supabase/migrations -maxdepth 1 -name '*.sql' | sort
+```
 
-If any migration errors with "already exists", that's fine — they're idempotent.
+Use the Supabase SQL editor to run each file, or your normal migration runner. Do not also apply files under `chunks/`; those are alternative partial scripts. Keep a record of applied migrations. For an existing deployment, back up first and apply only outstanding migrations in order. Stop and investigate errors; do not assume an “already exists” error means the whole migration succeeded.
 
 ### Configure auth
 
@@ -66,7 +65,7 @@ Get your Supabase credentials from the dashboard at **Settings → API**:
 - `NEXT_PUBLIC_SUPABASE_URL` — Project URL (e.g. `https://xxxxx.supabase.co`)
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY` — anon/public key
 
-Paste both values into `app/.env.local`.
+Paste both values into `app/.env.local`. Configure the operator name and contact email there too. Any `SUPABASE_SERVICE_ROLE_KEY` is a server-only secret and must never have a `NEXT_PUBLIC_` prefix or appear in browser code. Set it only where a server route or operator tool requires it.
 
 ## 5. Run locally
 
@@ -97,9 +96,24 @@ In Vercel, go to your project settings → Domains, then add your domain. Vercel
 ## Troubleshooting
 
 - **Magic link redirects to `localhost` in production**: you forgot to add the production URL to Supabase's redirect URLs list.
-- **"column does not exist" errors**: a migration didn't apply. Re-run the migration in the Supabase SQL editor.
-- **Magic link emails not arriving**: check Supabase's email rate limit on the free tier (~30/hour). For production usage, configure custom SMTP in Supabase auth settings.
+- **"column does not exist" errors**: check the applied migration history and apply missing migrations in order; do not rerun unknown scripts blindly.
+- **Magic link emails not arriving**: check Supabase's email rate limit on the free tier (see your current Supabase limits). For production usage, configure custom SMTP in Supabase auth settings.
 
 ## Stuck?
 
 Open an issue on GitHub.
+
+## Before using live invoices
+
+Test with synthetic documents first. Check that an unchecked line stays pending, received quantities are recorded explicitly, product and pack mismatches remain visible, and credit requests remain open until evidence of a credit exists. Use two independent pharmacy accounts to verify that neither can see the other’s documents or records. Test backups and restore, password recovery, and your actual scanner/browser combination.
+
+Barcode receipt capture depends on an accurate product-pack mapping. A valid check digit identifies a syntactically valid barcode, not the right medicine or quantity. Confirm unknown mappings against the physical pack and invoice; never guess from similar product names. Hardware scanners that type into an input are a useful fallback when a browser camera cannot decode a pack.
+
+Run the repository checks from its root:
+
+```bash
+npm run test:parser
+npm run build
+```
+
+Additional tests, where present, should be run using the scripts in `package.json`. Keep supplier documents, credentials and pharmacy-specific mappings out of public issues and commits.

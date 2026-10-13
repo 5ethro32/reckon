@@ -120,13 +120,9 @@ function lineDescriptor(line: CreditEmailLine): string {
   }
 
   if (line.flags.includes('damaged')) {
-    // For damaged we lean on qty_received as the count of damaged packs if
-    // qty_received is set and < qty_ordered (likely some were fine, some damaged);
-    // otherwise we fall back to qty_ordered as the damaged count.
-    const damagedQty =
-      line.qtyReceived !== null && line.qtyReceived < line.qtyOrdered
-        ? Math.max(1, line.qtyOrdered - line.qtyReceived)
-        : line.qtyOrdered;
+    // Damage currently describes the whole flagged invoice line. A partial
+    // damage workflow needs its own explicit affected quantity field.
+    const damagedQty = line.qtyOrdered;
     const packWord = damagedQty === 1 ? 'pack' : 'packs';
     const head2 = `${damagedQty} ${packWord} damaged on arrival`;
     let tail = '';

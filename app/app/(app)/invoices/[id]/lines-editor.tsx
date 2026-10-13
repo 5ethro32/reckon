@@ -5,7 +5,7 @@
  *
  * UX principles enforced here:
  *  - Autosave on every change. Visible per-row save state (spinner → ✓ → fade).
- *  - Default = "Received in full". User changes only the exceptions.
+ *  - Unchecked lines stay pending until receipt is confirmed.
  *  - Quantity cells always show "[N] of M ordered" — never lose the expected
  *    qty context.
  *  - Damaged lines reveal a follow-up disposition (returning / disposed /
@@ -46,7 +46,7 @@ type Line = {
   credited_via_statement_line_id?: string | null;
 };
 
-type LineStatus = 'full' | 'short' | 'damaged' | 'returned' | 'none';
+type LineStatus = 'pending' | 'partial' | 'full' | 'short' | 'damaged' | 'returned' | 'none';
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 function getStatus(line: Line): LineStatus {
@@ -54,10 +54,14 @@ function getStatus(line: Line): LineStatus {
   if (line.flags.includes('returned')) return 'returned';
   if (line.flags.includes('damaged')) return 'damaged';
   if (line.flags.includes('short')) return 'short';
+  if (line.qty_received === null) return 'pending';
+  if (line.qty_received !== line.qty_ordered) return 'partial';
   return 'full';
 }
 
 const statusLabels: Record<LineStatus, string> = {
+  pending: 'Not checked',
+  partial: 'Part received',
   full: 'Received in full',
   short: 'Short',
   damaged: 'Damaged',
@@ -73,6 +77,8 @@ const statusLabels: Record<LineStatus, string> = {
 // expected credit. We could split colours later if we want returned to feel
 // distinct, but visually they're sister states.
 const statusDotColor: Record<LineStatus, string> = {
+  pending: 'var(--muted)',
+  partial: 'var(--status-warning-text)',
   full: 'var(--status-success-text)',
   short: 'var(--status-warning-text)',
   damaged: 'var(--status-warning-text)',
@@ -128,7 +134,7 @@ export default function LinesEditor({
     lineId: string,
     patch: {
       flags?: string[];
-      qty_received?: number;
+      qty_received?: number | null;
       qty_returned?: number | null;
       damage_disposition?: DamageDisposition;
       return_disposition?: ReturnDisposition;
@@ -165,6 +171,7 @@ export default function LinesEditor({
    *  Sets flags + qty_received + qty_returned in one save. Clears
    *  disposition fields when moving away from their owning state. */
   async function updateStatus(lineId: string, status: LineStatus, qtyReceived?: number) {
+    if (status === 'pending' || status === 'partial') return;
     const line = lines.find(l => l.id === lineId);
     if (!line) return;
 
@@ -210,7 +217,9 @@ export default function LinesEditor({
 
   // Header summary computed from current lines
   const fullCount = lines.filter(l => getStatus(l) === 'full').length;
-  const exceptionCount = lines.length - fullCount;
+  const exceptionCount = lines.filter(l => l.flags.length > 0).length;
+  const uncheckedCount = lines.filter(l => getStatus(l) === 'pending').length;
+  const partialCount = lines.filter(l => getStatus(l) === 'partial').length;
 
   // Sticky action bar — exception lines and total credit potential
   const exceptionLines = lines.filter(l => l.flags.length > 0);
@@ -253,10 +262,11 @@ export default function LinesEditor({
         credit_request_id: string;
         mailto_url: string;
         reused?: boolean;
+        auto_resolved?: boolean;
       };
 
       // Open email client, then refresh so lines show as "credit requested"
-      window.location.href = result.mailto_url;
+      if (!result.auto_resolved) window.location.assign(result.mailto_url);
       router.refresh();
       setCreditState('idle');
     } catch (err) {
@@ -288,9 +298,9 @@ export default function LinesEditor({
           </span>
         </h2>
         <span style={{ fontSize: '12px', color: 'var(--muted)' }}>
-          {exceptionCount === 0
+          {lines.length > 0 && fullCount === lines.length
             ? 'All received in full'
-            : `${fullCount} of ${lines.length} received · ${exceptionCount} exception${exceptionCount === 1 ? '' : 's'}`}
+            : `${fullCount} received in full · ${uncheckedCount} unchecked · ${partialCount} part received · ${exceptionCount} exceptions`}
         </span>
       </div>
 
@@ -310,7 +320,7 @@ export default function LinesEditor({
             {lines.map(line => {
               const status = getStatus(line);
               const saveState = saveStates[line.id] ?? 'idle';
-              const isException = status !== 'full';
+              const isException = line.flags.length > 0;
               return (
                 <LineRow
                   key={line.id}
@@ -351,7 +361,7 @@ export default function LinesEditor({
             </span>
             <span style={{ fontSize: '12px', color: 'var(--muted)' }}>·</span>
             <span style={{ fontSize: '13px', color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>
-              £{exceptionTotal.toFixed(2)} to chase
+              £{exceptionTotal.toFixed(2)} invoice value of flagged lines
             </span>
             {creditState === 'unavailable' && (
               <span style={{
@@ -451,6 +461,8 @@ function LineRow({
               style={{ ['--status-dot-color' as string]: statusDotColor[status] }}
               aria-busy={saveState === 'saving'}
             >
+              <option value="pending" disabled>{statusLabels.pending}</option>
+              <option value="partial" disabled>{statusLabels.partial}</option>
               <option value="full">{statusLabels.full}</option>
               <option value="short">{statusLabels.short}</option>
               <option value="damaged">{statusLabels.damaged}</option>
@@ -618,6 +630,7 @@ function QtyCell({
   onCommit: (qty: number) => void;
   onChange: (qty: number) => void;
 }) {
+  if (status === 'pending' || status === 'partial') return <span>{line.qty_received ?? '—'} of {line.qty_ordered}</span>;
   if (status === 'short') {
     return (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem' }}>

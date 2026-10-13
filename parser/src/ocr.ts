@@ -107,7 +107,7 @@ function getPdfjsResourcePaths(): { cMapUrl: string; standardFontDataUrl: string
  * Uses pdfjs-dist to parse and rasterise; uses @napi-rs/canvas as the Canvas
  * implementation pdfjs renders into; reads back the page as a PNG Buffer.
  */
-async function renderPdfPagesToPng(buffer: Buffer): Promise<Buffer[]> {
+export async function renderPdfPagesToPng(buffer: Buffer): Promise<Buffer[]> {
   // Dynamic import because pdfjs-dist 5.x is ESM-only and we don't want to
   // pay the import cost unless OCR is actually needed.
   const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
@@ -174,7 +174,7 @@ async function renderPdfPagesToPng(buffer: Buffer): Promise<Buffer[]> {
   }
 
   await pdfDoc.cleanup();
-  await pdfDoc.destroy();
+  await loadingTask.destroy();
 
   return pngs;
 }

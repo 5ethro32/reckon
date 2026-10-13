@@ -238,84 +238,13 @@ async function persistStatement(
     invoiceLookup.set(inv.invoice_number, inv.id);
   }
 
-  // Open credit requests for this supplier — candidates for CRED-row matching
-  type OpenCreditRequest = {
-    id: string;
-    total_amount: number;
-    invoice_numbers: string[];  // invoice_numbers covered by this credit_request
-  };
-
-  // We include 'draft' credit_requests as match candidates. The original
-  // version only looked at sent/overdue, but a pharmacist might generate a
-  // credit-request DRAFT (so the line gets credit_request_id linked) and
-  // never click "send", relying on Reckon to confirm via the next statement.
-  // Without 'draft' here, that line stays stuck — its credit_request never
-  // resolves, AND the line-level matcher skips it because credit_request_id
-  // is set. Treating draft as a valid match candidate fixes both stuck cases.
-  const { data: creditRequestRows } = await supabase
-    .from('credit_requests')
-    .select(`
-      id, total_amount,
-      invoice_lines:invoice_lines!credit_request_id ( invoices ( invoice_number ) )
-    `)
-    .eq('pharmacy_id', pharmacyId)
-    .eq('supplier', statement.supplier)
-    .in('status', ['draft', 'sent', 'overdue']);
-
-  const openCredits: OpenCreditRequest[] = (creditRequestRows ?? []).map(
-    (cr: { id: string; total_amount: number; invoice_lines: Array<{ invoices: { invoice_number: string } | { invoice_number: string }[] }> }) => {
-      const invoiceNumbers = new Set<string>();
-      for (const line of cr.invoice_lines) {
-        const inv = Array.isArray(line.invoices) ? line.invoices[0] : line.invoices;
-        if (inv?.invoice_number) invoiceNumbers.add(inv.invoice_number);
-      }
-      return {
-        id: cr.id,
-        total_amount: Number(cr.total_amount),
-        invoice_numbers: Array.from(invoiceNumbers),
-      };
-    }
-  );
-
-  // Track which credit_requests have been claimed by a CRED row this run.
-  // One CRED row matches one credit_request — first-match-wins.
-  const claimedCreditRequestIds = new Set<string>();
-
   let matched = 0;
-  let creditsResolved = 0;
+  const creditsResolved = 0;
 
   const lineRows = statement.rows.map((row, idx) => {
-    const matchedInvoiceId = invoiceLookup.get(row.documentNumber) ?? null;
+    const matchedInvoiceId = row.documentType === 'INV' ? invoiceLookup.get(row.documentNumber) ?? null : null;
 
-    let resolvedCreditRequestId: string | null = null;
-
-    // CRED rows: try to match an open credit_request
-    if (row.documentType === 'CRED') {
-      // Statements show CRED rows with NEGATIVE totals; absolute value matches credit_request.total_amount
-      const creditAbs = Math.abs(Number(row.total));
-
-      // Strategy: prefer a credit_request that
-      //   (a) hasn't been claimed yet this run
-      //   (b) has matching invoice_number reference if available, AND
-      //   (c) has total_amount close to |row.total| (within 1p)
-      // Fall back to amount-only match if no reference match.
-      let candidate = openCredits.find(cr =>
-        !claimedCreditRequestIds.has(cr.id) &&
-        cr.invoice_numbers.includes(row.documentNumber) &&
-        Math.abs(cr.total_amount - creditAbs) < 0.01
-      );
-      if (!candidate) {
-        candidate = openCredits.find(cr =>
-          !claimedCreditRequestIds.has(cr.id) &&
-          Math.abs(cr.total_amount - creditAbs) < 0.01
-        );
-      }
-      if (candidate) {
-        resolvedCreditRequestId = candidate.id;
-        claimedCreditRequestIds.add(candidate.id);
-        creditsResolved++;
-      }
-    }
+    const resolvedCreditRequestId: string | null = null;
 
     if (matchedInvoiceId) matched++;
 
@@ -348,22 +277,6 @@ async function persistStatement(
       ok: false,
       error: `Lines insert failed: ${linesError.message}`,
     }, { status: 500 });
-  }
-
-  // Close out resolved credit_requests: status='resolved', stamp resolved_at + resolved_via_statement_line_id
-  if (insertedLines) {
-    for (const line of insertedLines) {
-      if (line.resolved_credit_request_id) {
-        await supabase
-          .from('credit_requests')
-          .update({
-            status: 'resolved',
-            resolved_at: new Date().toISOString(),
-            resolved_via_statement_line_id: line.id,
-          })
-          .eq('id', line.resolved_credit_request_id);
-      }
-    }
   }
 
   // Second-pass matching: each CRED row that didn't already resolve a

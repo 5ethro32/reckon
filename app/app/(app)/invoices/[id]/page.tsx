@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import LinesEditor from './lines-editor';
+import { readAll } from '@/lib/paginated-read';
+import PackReceiving from './pack-receiving';
 
 const supplierLabels: Record<string, string> = {
   aah: 'AAH', aver: 'Aver', phoenix: 'Phoenix',
@@ -33,7 +35,7 @@ export default async function InvoiceDetailPage({
 
   if (error || !invoice) notFound();
 
-  const { data: lines } = await supabase
+  const lineQuery = () => supabase
     .from('invoice_lines')
     .select(`
       id, line_number, supplier_sku, description, pack_size,
@@ -44,14 +46,23 @@ export default async function InvoiceDetailPage({
       credited_via_statement_line_id
     `)
     .eq('invoice_id', invoice.id)
-    .order('line_number');
+    .order('id').limit(500);
+
+  type InvoiceLine = NonNullable<Awaited<ReturnType<typeof lineQuery>>['data']>[number];
+  let lines: InvoiceLine[];
+  try {
+    lines = await readAll<InvoiceLine>(after => { const q = lineQuery(); return after ? q.gt('id', after) : q; });
+    lines.sort((a,b) => a.line_number - b.line_number);
+  } catch {
+    return <section className="card ops-panel" role="alert"><h1 className="page-title">Receipt lines unavailable</h1><p>We couldn’t load every line for this invoice. Refresh before recording receipt; no partial completion is shown.</p><Link href="/invoices">Back to invoices</Link></section>;
+  }
 
   const warnings = invoice.warnings as string[];
 
   // Header summary computed from line states — keeps header in sync with
   // tick-off interactions without needing a separate invoice.receipt_status update.
   const allLines = lines ?? [];
-  const fullCount = allLines.filter(l => (l.flags as string[]).length === 0).length;
+  const fullCount = allLines.filter(l => l.qty_received !== null && l.qty_received === l.qty_ordered && (l.flags as string[]).length === 0).length;
   const exceptionCount = allLines.length - fullCount;
   const allFull = allLines.length > 0 && exceptionCount === 0;
   const headerStatusLabel = allLines.length === 0
@@ -185,8 +196,9 @@ export default async function InvoiceDetailPage({
         )}
       </div>
 
+      {lines && <PackReceiving lines={lines} />}
       {/* Lines tick-off + sticky action bar */}
-      {lines && <LinesEditor invoiceId={invoice.id} initialLines={lines} />}
+      {lines && <LinesEditor key={JSON.stringify(lines)} invoiceId={invoice.id} initialLines={lines} />}
     </div>
   );
 }

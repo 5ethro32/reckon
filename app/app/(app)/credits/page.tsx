@@ -50,7 +50,7 @@ export default async function CreditsPage() {
       `id, supplier, status, total_amount, email_to, email_subject, email_body, sent_at,
        invoice_lines ( id, invoice_id )`
     )
-    .in('status', ['sent', 'overdue'])
+    .in('status', ['draft', 'sent', 'overdue'])
     .order('sent_at', { ascending: false, nullsFirst: false });
 
   if (reqsError) return <ErrorState message={reqsError.message} />;

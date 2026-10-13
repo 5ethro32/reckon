@@ -13,7 +13,8 @@
  *  - Re-opening the mailto: URL for previously sent requests
  */
 
-import { useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
+import { csvCell } from '@/lib/operations-summary';
 import { useRouter } from 'next/navigation';
 import { buildMailto } from '@/lib/credits/build-mailto';
 
@@ -81,11 +82,7 @@ function ageBadge(days: number | null): { label: string; cls: string } {
 // ---------------------------------------------------------------------------
 function csvEscape(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return '';
-  const s = String(value);
-  if (/[",\n\r]/.test(s)) {
-    return '"' + s.replace(/"/g, '""') + '"';
-  }
-  return s;
+  return csvCell(value);
 }
 
 function DownloadIcon() {
@@ -140,6 +137,7 @@ export default function CreditsTable({
 function OutstandingSection({ outstanding }: { outstanding: OutstandingRequest[] }) {
   const router = useRouter();
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [resolving, setResolving] = useState<OutstandingRequest | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   function resend(req: OutstandingRequest) {
@@ -152,29 +150,34 @@ function OutstandingSection({ outstanding }: { outstanding: OutstandingRequest[]
       subject: req.email_subject,
       body: req.email_body,
     });
-    window.location.href = url;
+    window.location.assign(url);
   }
 
-  async function markResolved(req: OutstandingRequest) {
-    if (
-      !window.confirm(
-        `Mark credit request to ${supplierLabels[req.supplier] ?? req.supplier} as resolved? The associated lines will be considered settled.`
-      )
-    ) {
-      return;
-    }
+  async function markSent(req: OutstandingRequest) {
+    setPendingId(req.id); setErrorMsg(null);
+    try {
+      const res = await fetch(`/api/credits/${req.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'sent' }) });
+      if (!res.ok) { const data = await res.json(); throw new Error(data.error ?? 'Could not record sent status'); }
+      router.refresh();
+    } catch (error) { setErrorMsg(error instanceof Error ? error.message : 'Could not record sent status'); }
+    finally { setPendingId(null); }
+  }
+
+  async function markResolved(req: OutstandingRequest, reference: string, notes: string) {
+    if (!reference.trim()) return;
     setPendingId(req.id);
     setErrorMsg(null);
     try {
       const res = await fetch(`/api/credits/${req.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'resolved' }),
+        body: JSON.stringify({ status: 'resolved', external_credit_note_number: reference.trim(), ...(notes.trim() ? { notes: notes.trim() } : {}) }),
       });
       if (!res.ok) {
         const j = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(j.error ?? `HTTP ${res.status}`);
       }
+      setResolving(null);
       router.refresh();
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Could not update');
@@ -205,6 +208,7 @@ function OutstandingSection({ outstanding }: { outstanding: OutstandingRequest[]
 
   return (
     <section style={{ marginBottom: '2rem' }}>
+      {resolving && <ResolutionDialog request={resolving} pending={pendingId === resolving.id} error={errorMsg} onCancel={() => { setResolving(null); setErrorMsg(null); }} onSave={(reference, notes) => markResolved(resolving, reference, notes)} />}
       <div
         style={{
           display: 'flex',
@@ -258,7 +262,7 @@ function OutstandingSection({ outstanding }: { outstanding: OutstandingRequest[]
           <table className="table">
             <thead>
               <tr>
-                <th>Sent</th>
+                <th>Sent / status</th>
                 <th>Supplier</th>
                 <th className="num">Invoices</th>
                 <th className="num">Lines</th>
@@ -274,7 +278,7 @@ function OutstandingSection({ outstanding }: { outstanding: OutstandingRequest[]
                 return (
                   <tr key={req.id}>
                     <td style={{ color: 'var(--muted)' }}>
-                      {req.sent_at
+                      {req.status === 'draft' ? 'Draft — not confirmed sent' : req.sent_at
                         ? new Date(req.sent_at).toLocaleDateString('en-GB')
                         : '—'}
                     </td>
@@ -299,15 +303,16 @@ function OutstandingSection({ outstanding }: { outstanding: OutstandingRequest[]
                           onClick={() => resend(req)}
                           disabled={!req.email_to}
                         >
-                          Re-send email
+                          {req.status === 'draft' ? 'Open draft email' : 'Re-open email'}
                         </button>
+                        {req.status === 'draft' && <button type="button" className="btn btn-secondary" disabled={pendingId === req.id} onClick={() => markSent(req)}>I have sent this</button>}
                         <button
                           type="button"
                           className="btn btn-secondary"
-                          onClick={() => markResolved(req)}
+                          onClick={() => { setErrorMsg(null); setResolving(req); }}
                           disabled={pendingId === req.id}
                         >
-                          {pendingId === req.id ? 'Saving…' : 'Mark resolved'}
+                          {pendingId === req.id ? 'Saving…' : 'Record received credit'}
                         </button>
                       </div>
                     </td>
@@ -321,6 +326,29 @@ function OutstandingSection({ outstanding }: { outstanding: OutstandingRequest[]
       )}
     </section>
   );
+}
+
+function ResolutionDialog({ request, pending, error, onCancel, onSave }: {
+  request: OutstandingRequest; pending: boolean; error: string | null;
+  onCancel: () => void; onSave: (reference: string, notes: string) => Promise<void>;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [reference, setReference] = useState('');
+  const [notes, setNotes] = useState('');
+  useEffect(() => { dialog.current?.showModal(); }, []);
+  return <dialog ref={dialog} className="credit-resolution-dialog" aria-labelledby="credit-resolution-title" onCancel={event => { event.preventDefault(); if (!pending) onCancel(); }}>
+    <form onSubmit={event => { event.preventDefault(); void onSave(reference, notes); }}>
+      <h2 id="credit-resolution-title">Record a received credit</h2>
+      <p>{supplierLabels[request.supplier] ?? request.supplier} · £{request.total_amount.toFixed(2)} requested</p>
+      <p className="ops-muted">Only close this request once you have checked that the supplier’s credit covers the full claim. A promise to issue a credit is not confirmation.</p>
+      <label htmlFor="credit-reference">Supplier credit note reference</label>
+      <input id="credit-reference" className="input" value={reference} onChange={event => setReference(event.target.value)} required maxLength={200} disabled={pending} autoFocus />
+      <label htmlFor="credit-evidence">Evidence or notes (optional)</label>
+      <textarea id="credit-evidence" className="input" value={notes} onChange={event => setNotes(event.target.value)} rows={3} maxLength={4000} disabled={pending} placeholder="For example, the statement date and where the credit was checked." />
+      {error && <p role="alert" style={{ color: 'var(--status-critical-text)' }}>{error}</p>}
+      <div className="credit-resolution-actions"><button type="button" className="btn btn-secondary" onClick={onCancel} disabled={pending}>Cancel</button><button type="submit" className="btn btn-primary" disabled={pending || !reference.trim()}>{pending ? 'Saving…' : 'Confirm credit received'}</button></div>
+    </form>
+  </dialog>;
 }
 
 // ---------------------------------------------------------------------------
