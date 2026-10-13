@@ -93,6 +93,21 @@ Once deployed, go back to your Supabase dashboard and add the production URL to 
 
 In Vercel, go to your project settings → Domains, then add your domain. Vercel will give you DNS records to point at — add them at your registrar. Update the Supabase redirect URLs to match the new domain.
 
+## Load the NHS dm+d pack list (optional, recommended)
+
+dm+d lets a scanned pack find its invoice line before your pharmacy has mapped it.
+
+1. Register at [NHS TRUD](https://isd.digital.nhs.uk/trud) and subscribe to the dm+d weekly release and its GTIN supplement (both free).
+2. Unzip the release and the GTIN zip into one folder.
+3. Load it (re-run each week or month to stay current):
+
+```bash
+SUPABASE_URL=https://<project>.supabase.co SUPABASE_SERVICE_ROLE_KEY=<service role key> \
+  npx tsx scripts/import-dmd.mts --dir ./dmd --load
+```
+
+Use `--csv dmd_packs.csv` instead of `--load` to write a CSV you can import in the Supabase table editor.
+
 ## Barcode scanners
 
 Phone cameras work over HTTPS in current Safari, Chrome and Firefox. A USB or Bluetooth handheld scanner works as a keyboard: click the **Pack barcode** box and scan.

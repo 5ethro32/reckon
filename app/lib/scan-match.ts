@@ -2,13 +2,14 @@
  * Suggest the invoice line a scanned pack belongs to. A suggestion only pre-selects the line:
  * staff still confirm the product and pack size before a new barcode mapping is saved.
  *
- * 1. This pharmacy's verified mapping for the supplier gives the supplier product code exactly.
- * 2. Otherwise the NHS dm+d pack (Open Government Licence) gives the medicine, strength and pack
+ * 1. The invoice itself prints the pack GTIN on the line (Phoenix).
+ * 2. This pharmacy's verified mapping for the supplier gives the supplier product code exactly.
+ * 3. Otherwise the NHS dm+d pack (Open Government Licence) gives the medicine, strength and pack
  *    quantity, which are compared with the invoice description and pack size.
  */
-export type MatchLine = { id: string; description: string; pack_size: string | null; supplier_sku: string | null };
+export type MatchLine = { id: string; description: string; pack_size: string | null; supplier_sku: string | null; gtin?: string | null };
 export type DmdHint = { name: string; generic_name: string | null; pack_qty: number | null };
-export type ScanMatch = { lineIds: string[]; source: 'mapping' | 'dmd' | 'none' };
+export type ScanMatch = { lineIds: string[]; source: 'invoice' | 'mapping' | 'dmd' | 'none' };
 
 const UNIT: Record<string, string> = { mg: 'mg', g: 'g', mcg: 'microgram', microgram: 'microgram', micrograms: 'microgram', ug: 'microgram', ml: 'ml', '%': '%', unit: 'unit', units: 'unit', iu: 'unit' };
 const STRENGTH = /(\d+(?:\.\d+)?)\s*(mg|g|mcg|micrograms?|ug|ml|%|units?|iu)(?![a-z])/gi;
@@ -59,7 +60,11 @@ function fitsDmd(line: MatchLine, hint: DmdHint): boolean {
   if (hint.pack_qty !== null && qty !== null && qty !== hint.pack_qty) return false;
   return true;
 }
-export function matchScan(lines: MatchLine[], mappedSkus: string[], dmd: DmdHint[]): ScanMatch {
+export function matchScan(lines: MatchLine[], mappedSkus: string[], dmd: DmdHint[], gtin?: string): ScanMatch {
+  if (gtin) {
+    const ids = lines.filter((l) => l.gtin === gtin).map((l) => l.id);
+    if (ids.length) return { lineIds: ids, source: 'invoice' };
+  }
   if (mappedSkus.length) {
     const ids = lines.filter((l) => l.supplier_sku && mappedSkus.includes(l.supplier_sku)).map((l) => l.id);
     if (ids.length) return { lineIds: ids, source: 'mapping' };

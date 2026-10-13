@@ -59,6 +59,21 @@ export async function POST(request: NextRequest) {
     }, { status: 422 });
   }
 
+  // A PDF holding several invoices (Phoenix bundles) saves each one.
+  if (result.documents && result.documents.length > 1 && result.documents.every((d) => d.kind === 'invoice')) {
+    const saved: { documentId?: string; summary?: string; ok?: boolean; error?: string }[] = [];
+    for (const doc of result.documents) saved.push(await (await persistInvoice(supabase, pharmacyId, doc as ParsedInvoice, file.name)).json());
+    const failed = saved.filter((r) => !r.ok);
+    return NextResponse.json({
+      ok: failed.length === 0,
+      documentId: saved.find((r) => r.ok)?.documentId,
+      kind: 'invoice',
+      supplier: result.documents[0]!.supplier,
+      summary: `${saved.length} invoices in this PDF: ${saved.map((r) => r.summary ?? r.error).join('; ')}`,
+      ...(failed.length ? { error: failed.map((r) => r.error).join('; ') } : {}),
+    }, { status: failed.length ? 207 : 200 });
+  }
+
   // Persist by document kind
   if (result.document.kind === 'invoice') {
     return await persistInvoice(supabase, pharmacyId, result.document, file.name);
@@ -138,6 +153,7 @@ async function persistInvoice(
     vat_rate: line.vatRate,
     vat_amount: line.vatAmount,
     gross: line.gross,
+    ...(line.gtin ? { gtin: line.gtin } : {}),
   }));
 
   const { error: linesError } = await supabase.from('invoice_lines').insert(lineRows);

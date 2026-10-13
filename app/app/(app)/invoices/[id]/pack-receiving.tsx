@@ -23,7 +23,7 @@ export default function PackReceiving({ invoiceId, lines }: { invoiceId: string;
    const ids:string[]=data.lineIds??[];
    if(ids.length===1){
     setLineId(ids[0]);
-    setMessage(data.source==='mapping'?'Matched to the invoice line from your saved barcode. Check the quantity before recording.':`Suggested from NHS dm+d (${data.dmdName}). Check the product and pack size against the pack before recording.`);
+    setMessage(data.source==='invoice'?'Matched to the invoice line by the barcode printed on the invoice. Check the quantity before recording.':data.source==='mapping'?'Matched to the invoice line from your saved barcode. Check the quantity before recording.':`Suggested from NHS dm+d (${data.dmdName}). Check the product and pack size against the pack before recording.`);
    }else if(ids.length>1){
     if(!ids.includes(lineId))setLineId(ids[0]);
     setMessage(`This barcode fits ${ids.length} invoice lines. Choose the right one before recording.`);
