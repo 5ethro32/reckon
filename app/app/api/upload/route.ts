@@ -14,6 +14,7 @@
 
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getSignedInUser } from '@/lib/supabase/user';
 import { parsePdf } from '@reckon/parser';
 import type { ParsedInvoice, ParsedStatement } from '@reckon/parser';
 import { looksLikeXlsx } from '@reckon/parser/pmr';
@@ -26,7 +27,7 @@ export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getSignedInUser(supabase);
   if (!user) {
     return NextResponse.json({ ok: false, error: 'Not signed in' }, { status: 401 });
   }

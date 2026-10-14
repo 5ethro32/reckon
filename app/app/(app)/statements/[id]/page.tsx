@@ -17,15 +17,6 @@ export default async function StatementDetailPage({
   const { id } = await params;
   const supabase = await createClient();
 
-  const { data: statement, error } = await supabase
-    .from('statements')
-    .select('id, supplier, statement_date, customer_account, customer_name, net_total, vat_total, gross_total, totals_match, warnings')
-    .eq('id', id)
-    .is('deleted_at', null)
-    .maybeSingle();
-
-  if (error || !statement) notFound();
-
   // We try the full SELECT (with the credit→line link from migration 0005)
   // first; if that column doesn't exist yet we fall back to the pre-0005
   // shape so the page still renders.
@@ -87,8 +78,7 @@ export default async function StatementDetailPage({
     } | { id: string; total_amount: number; invoice_lines: { invoices: { invoice_number: string } | { invoice_number: string }[] | null }[] }[] | null;
   };
 
-  let lines: RawLine[] | null = null;
-  {
+  async function loadLines(): Promise<RawLine[] | null> {
     // Pull everything we need to compute pending credit accurately:
     //   - each matched invoice's lines + their credit_request_id +
     //     credited_via_statement_line_id (so we can filter out resolved ones)
@@ -120,7 +110,7 @@ export default async function StatementDetailPage({
           )
         )
       `)
-      .eq('statement_id', statement.id)
+      .eq('statement_id', id)
       .order('line_number');
     if (r.error && /resolved_invoice_line_id|credited_via_statement_line_id/i.test(r.error.message)) {
       // Fallback for pre-0005 databases
@@ -136,13 +126,26 @@ export default async function StatementDetailPage({
             invoice_lines ( id, gross, flags, credit_request_id )
           )
         `)
-        .eq('statement_id', statement.id)
+        .eq('statement_id', id)
         .order('line_number');
-      lines = (r2.data as unknown as RawLine[] | null) ?? null;
+      return (r2.data as unknown as RawLine[] | null) ?? null;
     } else {
-      lines = (r.data as unknown as RawLine[] | null) ?? null;
+      return (r.data as unknown as RawLine[] | null) ?? null;
     }
   }
+
+  // Header and rows load in parallel; RLS scopes both.
+  const [{ data: statement, error }, lines] = await Promise.all([
+    supabase
+      .from('statements')
+      .select('id, supplier, statement_date, customer_account, customer_name, net_total, vat_total, gross_total, totals_match, warnings')
+      .eq('id', id)
+      .is('deleted_at', null)
+      .maybeSingle(),
+    loadLines(),
+  ]);
+
+  if (error || !statement) notFound();
 
   // Compute credit-pending state per matched invoice.
   //

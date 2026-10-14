@@ -43,15 +43,33 @@ type FlaggedLineRow = {
 export default async function CreditsPage() {
   const supabase = await createClient();
 
-  // 1. Outstanding credit_requests with their linked lines (for invoice/line counts)
-  const { data: reqsData, error: reqsError } = await supabase
-    .from('credit_requests')
-    .select(
-      `id, supplier, status, total_amount, email_to, email_subject, email_body, sent_at,
-       invoice_lines ( id, invoice_id )`
-    )
-    .in('status', ['draft', 'sent', 'overdue'])
-    .order('sent_at', { ascending: false, nullsFirst: false });
+  // Both reads are independent, so they run in parallel.
+  const [
+    // 1. Outstanding credit_requests with their linked lines (for invoice/line counts)
+    { data: reqsData, error: reqsError },
+    // 2. Flagged invoice_lines that aren't on any open credit request yet.
+    //    flags is a jsonb array, so "no flags" is '[]' (not '{}', which
+    //    matched every unclaimed line).
+    { data: linesData, error: linesError },
+  ] = await Promise.all([
+    supabase
+      .from('credit_requests')
+      .select(
+        `id, supplier, status, total_amount, email_to, email_subject, email_body, sent_at,
+         invoice_lines ( id, invoice_id )`
+      )
+      .in('status', ['draft', 'sent', 'overdue'])
+      .order('sent_at', { ascending: false, nullsFirst: false }),
+    supabase
+      .from('invoice_lines')
+      .select(
+        `id, invoice_id, supplier_sku, description, pack_size,
+         qty_ordered, qty_received, gross, flags,
+         invoices ( id, invoice_number, invoice_date, supplier, deleted_at )`
+      )
+      .is('credit_request_id', null)
+      .neq('flags', '[]'),
+  ]);
 
   if (reqsError) return <ErrorState message={reqsError.message} />;
 
@@ -71,17 +89,6 @@ export default async function CreditsPage() {
       lineCount: lines.length,
     };
   });
-
-  // 2. Flagged invoice_lines that aren't on any open credit request yet
-  const { data: linesData, error: linesError } = await supabase
-    .from('invoice_lines')
-    .select(
-      `id, invoice_id, supplier_sku, description, pack_size,
-       qty_ordered, qty_received, gross, flags,
-       invoices ( id, invoice_number, invoice_date, supplier, deleted_at )`
-    )
-    .is('credit_request_id', null)
-    .not('flags', 'eq', '{}');
 
   if (linesError) return <ErrorState message={linesError.message} />;
 

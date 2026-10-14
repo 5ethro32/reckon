@@ -22,19 +22,6 @@ export default async function InvoiceDetailPage({
   const { id } = await params;
   const supabase = await createClient();
 
-  const { data: invoice, error } = await supabase
-    .from('invoices')
-    .select(`
-      id, supplier, invoice_number, invoice_date, due_date, po_number,
-      customer_account, customer_name, net_total, vat_total, gross_total,
-      totals_match, receipt_status, warnings
-    `)
-    .eq('id', id)
-    .is('deleted_at', null)
-    .maybeSingle();
-
-  if (error || !invoice) notFound();
-
   const lineQuery = () => supabase
     .from('invoice_lines')
     .select(`
@@ -45,17 +32,34 @@ export default async function InvoiceDetailPage({
       damage_disposition, return_disposition,
       credited_via_statement_line_id
     `)
-    .eq('invoice_id', invoice.id)
+    .eq('invoice_id', id)
     .order('id').limit(500);
 
   type InvoiceLine = NonNullable<Awaited<ReturnType<typeof lineQuery>>['data']>[number];
-  let lines: InvoiceLine[];
-  try {
-    lines = await readAll<InvoiceLine>(after => { const q = lineQuery(); return after ? q.gt('id', after) : q; });
-    lines.sort((a,b) => a.line_number - b.line_number);
-  } catch {
+  // Header and lines load in parallel; RLS scopes both, and the lines are
+  // only used once the invoice itself is confirmed visible.
+  const [{ data: invoice, error }, linesResult] = await Promise.all([
+    supabase
+      .from('invoices')
+      .select(`
+        id, supplier, invoice_number, invoice_date, due_date, po_number,
+        customer_account, customer_name, net_total, vat_total, gross_total,
+        totals_match, receipt_status, warnings
+      `)
+      .eq('id', id)
+      .is('deleted_at', null)
+      .maybeSingle(),
+    readAll<InvoiceLine>(after => { const q = lineQuery(); return after ? q.gt('id', after) : q; })
+      .then(rows => ({ rows }), () => ({ rows: null })),
+  ]);
+
+  if (error || !invoice) notFound();
+
+  const lines = linesResult.rows;
+  if (!lines) {
     return <section className="card ops-panel" role="alert"><h1 className="page-title">Receipt lines unavailable</h1><p>We couldn’t load every line for this invoice. Refresh before recording receipt; no partial completion is shown.</p><Link href="/invoices">Back to invoices</Link></section>;
   }
+  lines.sort((a,b) => a.line_number - b.line_number);
 
   const warnings = invoice.warnings as string[];
 

@@ -23,6 +23,7 @@
 
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getSignedInUser } from '@/lib/supabase/user';
 
 export const runtime = 'nodejs';
 
@@ -42,7 +43,7 @@ export async function PATCH(
   const { id } = await params;
   const supabase = await createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getSignedInUser(supabase);
   if (!user) {
     return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
   }
