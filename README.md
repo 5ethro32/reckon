@@ -13,6 +13,7 @@ Free, open-source invoice and delivery reconciliation for independent community 
 - Track which credits are still outstanding
 - Record received pack quantities by scanning packs: the scan finds its invoice line from the GTIN printed on the invoice, your verified mappings, or NHS dm+d
 - Record deliveries before an invoice arrives, then link the paperwork explicitly
+- Import Positive Solutions dispensing reports (xlsx) to compare packs dispensed with packs bought and stock on hand; see [dispensing system import](./docs/pmr-import.md)
 
 ## Development checks
 

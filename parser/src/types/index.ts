@@ -121,3 +121,74 @@ export interface DetectionResult {
   /** Why we made this guess (for debugging). */
   signals: string[];
 }
+
+// ---------------------------------------------------------------------------
+// Dispensing system (PMR) exports
+// ---------------------------------------------------------------------------
+
+/** PMR reports we read. Positive Solutions (PSL) Pharmacy Manager is the first source system. */
+export type PmrReport = 'product_usage' | 'stock_value' | 'items_processed';
+
+/** Packs dispensed of one product in one calendar month at one site. */
+export interface PmrDispensingRow {
+  /** Product description as the PMR prints it (dm+d style, manufacturer included). */
+  description: string;
+  /** Units per pack, from the report's Pack Size column or the description. */
+  packSize: number | null;
+  /** YYYY-MM. */
+  month: string;
+  /** Whole or part packs dispensed. */
+  packs: number;
+  /** Units dispensed (tablets, ml, ...), when known. */
+  units: number | null;
+  /** Value at tariff, as the report prints it. */
+  value: number | null;
+  /** Branch name for multi-site exports ("Spoke" in PSL); empty for a single site. */
+  site: string;
+}
+
+/** Stock held of one product at one location when the report was run. */
+export interface PmrStockRow {
+  description: string;
+  packSize: number | null;
+  /** Location heading the row sat under (e.g. "BDRowa", "Manual", "On Order"). */
+  location: string;
+  /** Packs at that location. "On Order" rows are on order, not on hand. */
+  quantity: number;
+  /** Tariff price per pack. */
+  tariff: number | null;
+  value: number | null;
+  status: string;
+}
+
+/** A PIP code the PMR used for a product description. */
+export interface PmrPipRow {
+  description: string;
+  /** Seven digits, without the "P" prefix PSL prints. */
+  pip: string;
+}
+
+export interface ParsedPmr {
+  kind: 'pmr';
+  system: 'psl';
+  report: PmrReport;
+  /** First and last day covered, for usage and items reports (YYYY-MM-DD). */
+  periodStart: string | null;
+  periodEnd: string | null;
+  /** When a stock report was run (YYYY-MM-DD), from the export file name when present. */
+  snapshotDate: string | null;
+  /** Sites named in the export. */
+  sites: string[];
+  /** How the source states dispensed quantities before conversion to packs. */
+  quantityBasis: 'packs' | 'units' | null;
+  dispensing: PmrDispensingRow[];
+  stock: PmrStockRow[];
+  pips: PmrPipRow[];
+  /** Source rows read as product rows. */
+  sourceRows: number;
+  /** Headings, totals and blank rows that were skipped. */
+  skippedRows: number;
+  /** Columns present in the export that Reckon does not read or store. */
+  ignoredColumns: string[];
+  warnings: string[];
+}

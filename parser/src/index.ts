@@ -119,3 +119,6 @@ export async function parsePdf(buffer: Buffer): Promise<ParseResult> {
 // Re-export key types for consumers
 export type * from './types/index';
 export { detect } from './detect';
+
+// Dispensing system (PMR) exports: xlsx, not PDF. Also available alone as @reckon/parser/pmr.
+export * from './pmr/index';

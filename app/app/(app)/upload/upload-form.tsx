@@ -2,7 +2,8 @@
 
 /**
  * Upload form — drag-drop or file picker.
- * Posts to /api/upload, displays per-file status.
+ * Posts to /api/upload, displays per-file status. Takes supplier PDFs and
+ * Positive Solutions dispensing exports (xlsx).
  */
 
 import { useRouter } from 'next/navigation';
@@ -11,9 +12,12 @@ import { useState, useRef } from 'react';
 type UploadResult = {
   ok: true;
   documentId: string;
-  kind: 'invoice' | 'statement';
+  kind: 'invoice' | 'statement' | 'pmr';
   supplier: string;
   summary: string;
+  /** PMR exports: products not found in dm+d (largest first) and parser notes. */
+  unmatched?: string[];
+  warnings?: string[];
 } | {
   ok: false;
   error: string;
@@ -26,7 +30,7 @@ export default function UploadForm() {
   const [uploads, setUploads] = useState<{ filename: string; status: 'uploading' | UploadResult }[]>([]);
 
   async function handleFiles(files: FileList | File[]) {
-    const filesArray = Array.from(files).filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+    const filesArray = Array.from(files).filter(f => f.type === 'application/pdf' || /\.(pdf|xlsx)$/i.test(f.name));
     if (filesArray.length === 0) return;
 
     const startIndex = uploads.length;
@@ -81,7 +85,7 @@ export default function UploadForm() {
         <input
           ref={fileInput}
           type="file"
-          accept="application/pdf,.pdf"
+          accept="application/pdf,.pdf,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           multiple
           style={{ display: 'none' }}
           onChange={(e) => e.target.files && handleFiles(e.target.files)}
@@ -99,10 +103,10 @@ export default function UploadForm() {
           <path d="M12 16V4M12 4l-4 4M12 4l4 4M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
         <p style={{ fontSize: '14px', fontWeight: 500, margin: 0, marginBottom: '0.375rem' }}>
-          Drop PDFs here or click to upload
+          Drop PDFs or dispensing exports here, or click to upload
         </p>
         <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0 }}>
-          AAH · Aver · Phoenix · Alliance · Ethigen · Numark
+          AAH · Aver · Phoenix · Alliance · Ethigen · Numark · Positive Solutions (xlsx)
         </p>
       </div>
 
@@ -195,9 +199,17 @@ function UploadRow({ filename, status }: { filename: string; status: 'uploading'
         <p style={{ fontSize: '11px', color: 'var(--muted)', margin: 0, marginTop: '0.125rem' }}>
           {status.summary}
         </p>
+        {status.unmatched && status.unmatched.length > 0 && (
+          <p style={{ fontSize: '11px', color: 'var(--muted)', margin: 0, marginTop: '0.25rem' }}>
+            Not found in dm+d: {status.unmatched.join('; ')}
+          </p>
+        )}
+        {status.warnings?.map((w) => (
+          <p key={w} style={{ fontSize: '11px', color: 'var(--muted)', margin: 0, marginTop: '0.125rem' }}>{w}</p>
+        ))}
       </div>
       <a
-        href={status.kind === 'invoice' ? `/invoices/${status.documentId}` : `/statements/${status.documentId}`}
+        href={status.kind === 'pmr' ? '/dispensing' : status.kind === 'invoice' ? `/invoices/${status.documentId}` : `/statements/${status.documentId}`}
         style={{
           fontSize: '12px',
           color: 'var(--foreground)',
