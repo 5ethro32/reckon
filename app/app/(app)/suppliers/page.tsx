@@ -8,9 +8,12 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { CONTACT_EMAIL } from '@/lib/contact';
+import { parsePeriod } from '@/lib/period';
 import SupplierForm, { type SupplierContact } from './supplier-form';
+import SupplierPerformance from './supplier-performance';
 
-export default async function SuppliersPage() {
+export default async function SuppliersPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const period = parsePeriod(await searchParams);
   const supabase = await createClient();
 
   const { data, error } = await supabase
@@ -29,9 +32,13 @@ export default async function SuppliersPage() {
           Suppliers
         </h1>
         <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0 }}>
-          Set the email address Reckon uses for credit chase emails per supplier.
+          How each supplier performed, and the email address Reckon uses for credit chase emails.
         </p>
       </div>
+
+      <SupplierPerformance period={period} />
+
+      <h2 className="section-label" style={{ margin: '0 0 0.75rem' }}>Credit chase contacts</h2>
 
       {contacts.length === 0 ? (
         <EmptyState />
