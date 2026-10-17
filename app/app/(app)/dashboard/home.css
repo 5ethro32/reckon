@@ -1,0 +1,106 @@
+/* Home. Desktop: figures, deliveries beside the wholesaler ring, claims.
+   Phones: the next delivery and its scan button first. */
+
+.hm {
+  display: grid; gap: 16px;
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  grid-template-areas:
+    'head head'
+    'figs figs'
+    'deliv donut'
+    'claims donut';
+  align-items: start;
+}
+.hm-head { grid-area: head; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.hm-title { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.025em; }
+.hm-figs { grid-area: figs; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.hm-deliveries { grid-area: deliv; }
+.hm-donut-slot { grid-area: donut; min-width: 0; position: sticky; top: 16px; }
+.hm-claims { grid-area: claims; }
+
+.hm-fig {
+  display: flex; flex-direction: column; gap: 6px; padding: 16px 18px 15px;
+  color: inherit; text-decoration: none; transition: background-color 120ms, border-color 120ms;
+}
+.hm-fig:hover { border-color: var(--gi-hair-strong); }
+.hm-fig strong { font-size: 24px; font-weight: 650; letter-spacing: -0.025em; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hm-fig strong.is-warn { color: var(--gi-warn); }
+.hm-fig strong.is-good { color: var(--gi-good); }
+.hm-fig span { font-size: 12.5px; color: var(--gi-ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hm-warn-ink { color: var(--gi-warn); }
+
+.hm-more { margin: 0; padding: 4px 20px 16px; }
+.hm-scan { padding: 4px 20px 16px; }
+.hm-fold { border-top: 1px solid var(--gi-hair); }
+.hm-fold summary {
+  list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between;
+  min-height: 48px; padding: 0 20px; font-size: 13.5px; color: var(--gi-ink-soft);
+}
+.hm-fold summary::-webkit-details-marker { display: none; }
+.hm-fold[open] summary .gi-chev { transform: rotate(180deg); }
+
+/* Wholesaler ring */
+.hm-seg {
+  display: flex; margin: 4px 20px 0; padding: 3px; gap: 2px; border-radius: 10px; background: var(--gi-press);
+}
+.hm-seg button {
+  flex: 1; min-height: 32px; border: 0; border-radius: 8px; background: transparent; color: var(--gi-ink-soft);
+  font: inherit; font-size: 13px; font-weight: 500; cursor: pointer;
+}
+.hm-seg button[aria-selected="true"] { background: var(--gi-raised); color: var(--gi-ink); box-shadow: 0 1px 3px rgb(0 0 0 / 0.1); }
+.hm-donut { display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 20px 20px 20px; }
+.hm-ring { position: relative; width: 168px; height: 168px; flex: none; }
+.hm-ring svg { display: block; width: 100%; height: 100%; }
+.hm-arc { cursor: pointer; transition: opacity 150ms; }
+.hm-arc.is-faded { opacity: 0.22; }
+.hm-ring-centre {
+  position: absolute; inset: 0; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-align: center;
+}
+.hm-ring-centre strong { font-size: 21px; font-weight: 650; letter-spacing: -0.02em; line-height: 1; }
+.hm-ring-centre span { font-size: 12px; color: var(--gi-ink-faint); line-height: 1; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-legend { list-style: none; margin: 0; padding: 0; width: 100%; display: grid; gap: 2px; }
+.hm-legend li {
+  display: grid; grid-template-columns: 8px minmax(0, 1fr) auto 3rem; align-items: center; gap: 10px;
+  min-height: 36px; padding: 0 8px; border-radius: 8px; font-size: 13.5px; cursor: pointer; transition: opacity 150ms, background-color 120ms;
+}
+.hm-legend li:hover { background: var(--gi-hover); }
+.hm-legend li.is-faded { opacity: 0.4; }
+.hm-legend i { width: 8px; height: 8px; border-radius: 3px; }
+.hm-legend-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-legend-pct { color: var(--gi-ink-faint); text-align: right; }
+.hm-legend-empty { margin: 0; font-size: 13px; color: var(--gi-ink-faint); text-align: center; }
+@media (prefers-reduced-motion: reduce) { .hm-arc, .hm-legend li { transition: none; } }
+
+@media (max-width: 1100px) {
+  .hm-figs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) and (min-width: 769px) {
+  .hm { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'head' 'figs' 'deliv' 'donut' 'claims'; }
+  .hm-donut-slot { position: static; }
+}
+
+/* Phones: what is at the door comes first. */
+@media (max-width: 768px) {
+  .hm {
+    gap: 12px; grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'head' 'deliv' 'figs' 'claims' 'donut';
+  }
+  .hm-title { font-size: 24px; }
+  .hm-figs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .hm-fig { padding: 14px 16px; }
+  .hm-fig strong { font-size: 21px; }
+  .hm-donut-slot { position: static; }
+  .hm-donut { flex-direction: row; align-items: center; gap: 16px; padding: 16px 16px 18px; }
+  .hm-ring { width: 128px; height: 128px; }
+  .hm-ring-centre strong { font-size: 17px; }
+  .hm-legend li { grid-template-columns: 8px minmax(0, 1fr) auto; gap: 8px; padding: 0 4px; font-size: 13px; }
+  .hm-legend-pct { display: none; }
+  .hm .gi-card-head { padding: 14px 16px 6px; }
+  .hm .gi-rows { padding: 0 4px 6px; }
+  .hm .gi-row { padding: 10px 12px; gap: 10px; }
+  .hm-scan, .hm-more { padding-left: 16px; padding-right: 16px; }
+  .hm-fold summary { padding: 0 16px; }
+  .hm .gi-empty { padding: 6px 16px 18px; }
+  .hm-seg { margin: 4px 16px 0; }
+}

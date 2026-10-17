@@ -1,26 +1,23 @@
 'use client';
 
 /**
- * Lines tick-off editor (autosave model) + sticky credit action bar.
+ * Checking a delivery against its invoice.
  *
- * UX principles enforced here:
- *  - Autosave on every change. Visible per-row save state (spinner → ✓ → fade).
- *  - Unchecked lines stay pending until receipt is confirmed.
- *  - Quantity cells always show "[N] of M ordered" — never lose the expected
- *    qty context.
- *  - Damaged lines reveal a follow-up disposition (returning / disposed /
- *    awaiting) inline below the row.
- *  - All exception lines reveal a Notes field — pharmacist's freeform
- *    context (e.g. "broken vial 3 of 12", "expired Mar 26").
- *  - Sticky action bar appears when exceptions exist. "Generate credit
- *    request" posts to /api/credits, opens mailto, refreshes view.
- *  - Smart recovery: if all selected lines are already on the same open
- *    credit_request, the API re-opens it (idempotent). If different,
- *    cancels old + creates new. The UI just retries the request.
+ *  - One tap on a line's circle marks it received in full.
+ *  - Its menu records short, damaged, returned or not received, with a
+ *    stepper for quantities, so the common cases need no typing.
+ *  - Every change saves at once (PATCH /api/invoice-lines/[id]); the row shows
+ *    saving, saved or failed, and a failed save rolls back.
+ *  - "Scan packs" opens the camera; scans add to received quantities.
+ *  - When lines have problems, "Raise claim" posts to /api/credits and opens
+ *    the email, as before. The API reuses an open claim for the same lines.
  */
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { CheckIcon, ScanIcon, Sheet, Stepper, Track } from '@/components/goods-in/ui';
+import { money } from '@/lib/goods-in/supplier';
+import PackReceiving from './pack-receiving';
 
 type DamageDisposition = 'returning' | 'disposed' | 'awaiting' | null;
 type ReturnDisposition = 'damaged' | 'wrong_product' | 'expired' | 'over_ordered' | 'other' | null;
@@ -48,6 +45,14 @@ type Line = {
 
 type LineStatus = 'pending' | 'partial' | 'full' | 'short' | 'damaged' | 'returned' | 'none';
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+type Patch = {
+  flags?: string[];
+  qty_received?: number | null;
+  qty_returned?: number | null;
+  damage_disposition?: DamageDisposition;
+  return_disposition?: ReturnDisposition;
+  notes?: string | null;
+};
 
 function getStatus(line: Line): LineStatus {
   if (line.flags.includes('not_received')) return 'none';
@@ -59,100 +64,62 @@ function getStatus(line: Line): LineStatus {
   return 'full';
 }
 
-const statusLabels: Record<LineStatus, string> = {
-  pending: 'Not checked',
-  partial: 'Part received',
-  full: 'Received in full',
-  short: 'Short',
-  damaged: 'Damaged',
-  returned: 'Returned',
-  none: 'Not received',
-};
-
-// State dot colour for the status-select (see .status-select in globals.css).
-// We use the badge text colour (the brighter of each pair) so the dot reads
-// clearly on the neutral input background in both light and dark mode.
-//
-// Returned uses the same warning amber as Damaged because both imply an
-// expected credit. We could split colours later if we want returned to feel
-// distinct, but visually they're sister states.
-const statusDotColor: Record<LineStatus, string> = {
-  pending: 'var(--muted)',
-  partial: 'var(--status-warning-text)',
-  full: 'var(--status-success-text)',
-  short: 'var(--status-warning-text)',
-  damaged: 'var(--status-warning-text)',
-  returned: 'var(--status-warning-text)',
-  none: 'var(--status-critical-text)',
-};
-
 const dispositionLabels: Record<Exclude<DamageDisposition, null>, string> = {
-  returning: 'Returning to supplier',
-  disposed: 'Disposed of',
-  awaiting: 'Awaiting decision',
+  returning: 'Returning', disposed: 'Disposed of', awaiting: 'Not decided',
+};
+const returnLabels: Record<Exclude<ReturnDisposition, null>, string> = {
+  damaged: 'Damaged', wrong_product: 'Wrong product', expired: 'Short-dated or expired', over_ordered: 'Over-ordered', other: 'Other',
 };
 
-const returnDispositionLabels: Record<Exclude<ReturnDisposition, null>, string> = {
-  damaged: 'Damaged on arrival',
-  wrong_product: 'Wrong product picked',
-  expired: 'Short-dated / expired',
-  over_ordered: 'Over-ordered',
-  other: 'Other (see note)',
-};
+function statusText(line: Line, status: LineStatus): { text: string; tone: 'good' | 'warn' | 'ink' | 'open' } {
+  const of = `${line.qty_received ?? 0} of ${line.qty_ordered}`;
+  switch (status) {
+    case 'full': return { text: 'Received', tone: 'good' };
+    case 'partial': return { text: `${of} scanned`, tone: 'ink' };
+    case 'short': return { text: `Short · ${of} received`, tone: 'warn' };
+    case 'damaged': return { text: `Damaged · ${dispositionLabels[line.damage_disposition ?? 'awaiting'].toLowerCase()}`, tone: 'warn' };
+    case 'returned': return { text: `Returned ${line.qty_returned ?? line.qty_ordered}${line.return_disposition ? ` · ${returnLabels[line.return_disposition].toLowerCase()}` : ''}`, tone: 'warn' };
+    case 'none': return { text: 'Not received', tone: 'warn' };
+    default: return { text: 'Not checked', tone: 'open' };
+  }
+}
 
 export default function LinesEditor({
   invoiceId,
+  invoiceNumber,
   initialLines,
+  startScanning = false,
 }: {
   invoiceId: string;
+  invoiceNumber: string;
   initialLines: Line[];
+  startScanning?: boolean;
 }) {
   const router = useRouter();
   const [lines, setLines] = useState(initialLines);
   const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({});
   const [creditState, setCreditState] = useState<'idle' | 'submitting' | 'unavailable' | 'error'>('idle');
-  const [creditError, setCreditError] = useState<string>('');
+  const [creditError, setCreditError] = useState('');
+  const [openLineId, setOpenLineId] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(startScanning);
 
-  // Auto-clear "saved" state after a moment so it fades back to idle
+  // "Saved" fades back to idle after a moment.
   useEffect(() => {
-    const savedIds = Object.entries(saveStates)
-      .filter(([, state]) => state === 'saved')
-      .map(([id]) => id);
+    const savedIds = Object.entries(saveStates).filter(([, s]) => s === 'saved').map(([id]) => id);
     if (savedIds.length === 0) return;
     const timer = setTimeout(() => {
-      setSaveStates(prev => {
-        const next = { ...prev };
-        savedIds.forEach(id => { next[id] = 'idle'; });
-        return next;
-      });
+      setSaveStates(prev => { const next = { ...prev }; savedIds.forEach(id => { next[id] = 'idle'; }); return next; });
     }, 1500);
     return () => clearTimeout(timer);
   }, [saveStates]);
 
-  /** PATCH a line with arbitrary partial updates. Optimistic + rollback on error. */
-  async function patchLine(
-    lineId: string,
-    patch: {
-      flags?: string[];
-      qty_received?: number | null;
-      qty_returned?: number | null;
-      damage_disposition?: DamageDisposition;
-      return_disposition?: ReturnDisposition;
-      notes?: string | null;
-    }
-  ) {
+  /** PATCH a line. Optimistic, rolled back on error. */
+  async function patchLine(lineId: string, patch: Patch) {
     setSaveStates(prev => ({ ...prev, [lineId]: 'saving' }));
-
-    // Optimistic update
-    setLines(prev =>
-      prev.map(l => (l.id === lineId ? { ...l, ...patch } : l))
-    );
-
+    setLines(prev => prev.map(l => (l.id === lineId ? { ...l, ...patch } : l)));
     try {
       const res = await fetch(`/api/invoice-lines/${lineId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patch),
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setSaveStates(prev => ({ ...prev, [lineId]: 'saved' }));
@@ -161,580 +128,328 @@ export default function LinesEditor({
       console.error('Save failed', err);
       setSaveStates(prev => ({ ...prev, [lineId]: 'error' }));
       const original = initialLines.find(l => l.id === lineId);
-      if (original) {
-        setLines(prev => prev.map(l => (l.id === lineId ? original : l)));
-      }
+      if (original) setLines(prev => prev.map(l => (l.id === lineId ? original : l)));
     }
   }
 
-  /** Top-level status change (full / short / damaged / returned / none).
-   *  Sets flags + qty_received + qty_returned in one save. Clears
-   *  disposition fields when moving away from their owning state. */
+  /** Set a line's state: flags, received and returned quantities in one save.
+   *  Leaving damaged or returned clears that state's follow-up. */
   async function updateStatus(lineId: string, status: LineStatus, qtyReceived?: number) {
     if (status === 'pending' || status === 'partial') return;
     const line = lines.find(l => l.id === lineId);
     if (!line) return;
-
-    // Build the flags list. The schema allows multiple flags per line in
-    // theory, but in practice the UI is single-state, so we keep it simple.
-    const flags: string[] =
-      status === 'full' ? [] : [status === 'none' ? 'not_received' : status];
-
-    // qty_received logic — what the pharmacist physically holds AFTER any
-    // return is settled.
-    //   full / damaged       → all received
-    //   returned (default full return) → 0 received (since they sent it back)
-    //   short                → user-specified
-    //   none                 → 0
-    const newQty =
-      status === 'full' || status === 'damaged'
-        ? line.qty_ordered
-        : status === 'none' || status === 'returned'
-        ? 0
-        : qtyReceived ?? 0;
-
-    // qty_returned: only meaningful when status='returned'. Default to full
-    // qty_ordered (most common case) — user can adjust to a partial return.
-    const newQtyReturned = status === 'returned' ? line.qty_ordered : null;
-
-    const patch: Parameters<typeof patchLine>[1] = {
-      flags,
-      qty_received: newQty,
-      qty_returned: newQtyReturned,
-    };
-
-    // Clear damage disposition when leaving damaged
-    if (status !== 'damaged') {
-      patch.damage_disposition = null;
-    }
-    // Clear return disposition when leaving returned
-    if (status !== 'returned') {
-      patch.return_disposition = null;
-    }
-
+    const flags: string[] = status === 'full' ? [] : [status === 'none' ? 'not_received' : status];
+    // What the pharmacy holds after any return: full and damaged keep everything,
+    // returned and not received hold none, short holds what was counted.
+    const qty = status === 'full' || status === 'damaged' ? line.qty_ordered
+      : status === 'none' || status === 'returned' ? 0 : qtyReceived ?? 0;
+    const patch: Patch = { flags, qty_received: qty, qty_returned: status === 'returned' ? line.qty_ordered : null };
+    if (status !== 'damaged') patch.damage_disposition = null;
+    if (status !== 'returned') patch.return_disposition = null;
     await patchLine(lineId, patch);
   }
 
-  // Header summary computed from current lines
-  const fullCount = lines.filter(l => getStatus(l) === 'full').length;
-  const exceptionCount = lines.filter(l => l.flags.length > 0).length;
-  const uncheckedCount = lines.filter(l => getStatus(l) === 'pending').length;
-  const partialCount = lines.filter(l => getStatus(l) === 'partial').length;
+  const counts = useMemo(() => {
+    let full = 0, pending = 0, partial = 0, problems = 0;
+    for (const l of lines) {
+      const s = getStatus(l);
+      if (s === 'full') full++; else if (s === 'pending') pending++; else if (s === 'partial') partial++; else problems++;
+    }
+    return { full, pending, partial, problems, checked: lines.length - pending - partial };
+  }, [lines]);
 
-  // Sticky action bar — exception lines and total credit potential
   const exceptionLines = lines.filter(l => l.flags.length > 0);
   const exceptionTotal = exceptionLines.reduce((sum, l) => sum + Number(l.gross), 0);
-  const showActionBar = exceptionLines.length > 0;
 
   async function generateCredit() {
     if (exceptionLines.length === 0) return;
     setCreditState('submitting');
     setCreditError('');
-
     try {
       const res = await fetch('/api/credits', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          invoice_ids: [invoiceId],
-          invoice_line_ids: exceptionLines.map(l => l.id),
-        }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoice_ids: [invoiceId], invoice_line_ids: exceptionLines.map(l => l.id) }),
       });
-
-      if (res.status === 404) {
-        setCreditState('unavailable');
-        return;
-      }
-
+      if (res.status === 404) { setCreditState('unavailable'); return; }
       if (!res.ok) {
-        // Try to extract a friendly error message
         let msg = `HTTP ${res.status}`;
-        try {
-          const j = await res.json();
-          if (typeof j?.error === 'string') msg = j.error;
-        } catch {
-          // Ignore parse failure, use default
-        }
+        try { const j = await res.json(); if (typeof j?.error === 'string') msg = j.error; } catch { /* default message */ }
         throw new Error(msg);
       }
-
-      const result = (await res.json()) as {
-        credit_request_id: string;
-        mailto_url: string;
-        reused?: boolean;
-        auto_resolved?: boolean;
-      };
-
-      // Open email client, then refresh so lines show as "credit requested"
+      const result = (await res.json()) as { credit_request_id: string; mailto_url: string; reused?: boolean; auto_resolved?: boolean };
       if (!result.auto_resolved) window.location.assign(result.mailto_url);
       router.refresh();
       setCreditState('idle');
     } catch (err) {
       console.error('Credit request failed', err);
       setCreditState('error');
-      setCreditError(err instanceof Error ? err.message : 'Could not create credit request');
+      setCreditError(err instanceof Error ? err.message : 'Could not create the claim');
     }
   }
 
+  const closeSheet = useCallback(() => setOpenLineId(null), []);
+  const closeScanner = useCallback(() => {
+    setScanning(false);
+    // Drop ?scan=1 so a refresh does not reopen the camera.
+    if (window.location.search.includes('scan=')) window.history.replaceState(null, '', window.location.pathname);
+    router.refresh();
+  }, [router]);
+
+  const openLine = lines.find(l => l.id === openLineId) ?? null;
+  const total = lines.length;
+  const done = total > 0 && counts.pending === 0 && counts.partial === 0;
+
   return (
-    <div>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          justifyContent: 'space-between',
-          marginBottom: '0.75rem',
-        }}
-      >
-        <h2 style={{
-          fontSize: '15px',
-          fontWeight: 600,
-          margin: 0,
-          letterSpacing: '-0.005em',
-        }}>
-          Lines{' '}
-          <span style={{ color: 'var(--muted)', fontWeight: 400 }}>
-            ({lines.length})
+    <div className="gx-check">
+      <section className="gi-card gx-progress" aria-label="Checking progress">
+        <div className="gx-progress-text">
+          <strong className="tnum">{counts.checked} of {total} lines checked</strong>
+          <span>
+            {done && counts.problems === 0 ? 'Everything received'
+              : counts.problems ? <span className="gi-status"><i className="gi-dot is-warn" />{counts.problems} {counts.problems === 1 ? 'problem' : 'problems'}</span> : null}
           </span>
-        </h2>
-        <span style={{ fontSize: '12px', color: 'var(--muted)' }}>
-          {lines.length > 0 && fullCount === lines.length
-            ? 'All received in full'
-            : `${fullCount} received in full · ${uncheckedCount} unchecked · ${partialCount} part received · ${exceptionCount} exceptions`}
-        </span>
-      </div>
-
-      <div className="card" style={{ overflow: 'hidden' }}>
-        <div className="table-scroll">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>SKU</th>
-              <th>Description</th>
-              <th className="num">Received</th>
-              <th className="num">Net</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {lines.map(line => {
-              const status = getStatus(line);
-              const saveState = saveStates[line.id] ?? 'idle';
-              const isException = line.flags.length > 0;
-              return (
-                <LineRow
-                  key={line.id}
-                  line={line}
-                  status={status}
-                  isException={isException}
-                  saveState={saveState}
-                  onStatusChange={(s) => updateStatus(line.id, s)}
-                  onQtyChange={(q) => {
-                    setLines(prev =>
-                      prev.map(l => (l.id === line.id ? { ...l, qty_received: q } : l))
-                    );
-                  }}
-                  onQtyCommit={(q) => updateStatus(line.id, 'short', q)}
-                  onDispositionChange={(d) => patchLine(line.id, { damage_disposition: d })}
-                  onReturnDispositionChange={(d) => patchLine(line.id, { return_disposition: d })}
-                  onQtyReturnedCommit={(q) => patchLine(line.id, { qty_returned: q })}
-                  onNotesChange={(n) => {
-                    setLines(prev =>
-                      prev.map(l => (l.id === line.id ? { ...l, notes: n } : l))
-                    );
-                  }}
-                  onNotesCommit={(n) => patchLine(line.id, { notes: n || null })}
-                />
-              );
-            })}
-          </tbody>
-        </table>
         </div>
-      </div>
+        <Track total={total} good={counts.full} warn={counts.problems} ink={counts.partial} label={`${counts.full} received, ${counts.problems} with problems, ${counts.pending + counts.partial} to check`} />
+        <button type="button" className="gi-btn gi-btn-primary gx-scan-btn" onClick={() => setScanning(true)} disabled={!total}>
+          <ScanIcon />Scan packs
+        </button>
+      </section>
 
-      {/* Sticky credit action bar — only when there are exceptions */}
-      {showActionBar && (
-        <div className="action-bar-sticky fade-in">
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.625rem', minWidth: 0 }}>
-            <span style={{ fontSize: '13px', fontWeight: 500 }}>
-              {exceptionLines.length} exception{exceptionLines.length === 1 ? '' : 's'}
-            </span>
-            <span style={{ fontSize: '12px', color: 'var(--muted)' }}>·</span>
-            <span style={{ fontSize: '13px', color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>
-              £{exceptionTotal.toFixed(2)} invoice value of flagged lines
-            </span>
-            {creditState === 'unavailable' && (
-              <span style={{
-                fontSize: '11px',
-                color: 'var(--muted)',
-                marginLeft: '0.5rem',
-                fontStyle: 'italic',
-              }}>
-                · Credit chasing not configured yet
+      <section className="gi-card gx-lines" aria-label="Invoice lines">
+        <div className="gx-thead gi-desk" aria-hidden="true">
+          <span /><span>Product</span><span>Code</span><span className="num">Qty</span><span className="num">Net</span><span>Status</span><span />
+        </div>
+        <ul className="gx-list">
+          {lines.map(line => (
+            <LineRow
+              key={line.id}
+              line={line}
+              status={getStatus(line)}
+              saveState={saveStates[line.id] ?? 'idle'}
+              onTick={() => {
+                const s = getStatus(line);
+                if (s === 'pending' || s === 'partial') void updateStatus(line.id, 'full');
+                else setOpenLineId(line.id);
+              }}
+              onMore={() => setOpenLineId(line.id)}
+            />
+          ))}
+        </ul>
+        {!total && <p className="gi-empty" style={{ paddingTop: 16 }}>No lines were read from this invoice. Check the upload, or re-upload a clearer copy.</p>}
+      </section>
+
+      {(exceptionLines.length > 0 || done) && (
+        <div className={`gx-finish${exceptionLines.length ? '' : ' is-done'}`} role="status">
+          {exceptionLines.length > 0 ? (
+            <>
+              <span className="gx-finish-text">
+                <strong>{exceptionLines.length} {exceptionLines.length === 1 ? 'problem' : 'problems'}</strong>
+                <span className="tnum">{money(exceptionTotal)}{done ? ' on these lines' : ` · ${counts.pending + counts.partial} to check`}</span>
+                {creditState === 'unavailable' && <span className="gi-error">Claims are not set up for this workspace yet.</span>}
+                {creditState === 'error' && <span className="gi-error">{creditError}</span>}
               </span>
-            )}
-            {creditState === 'error' && (
-              <span style={{
-                fontSize: '11px',
-                color: 'var(--status-critical-text)',
-                marginLeft: '0.5rem',
-              }}>
-                · {creditError}
-              </span>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={generateCredit}
-            disabled={creditState === 'submitting' || creditState === 'unavailable'}
-            className="btn btn-primary btn-sm"
-          >
-            {creditState === 'submitting' ? 'Generating…' : 'Generate credit request'}
-          </button>
+              <button type="button" className="gi-btn gi-btn-primary" onClick={generateCredit}
+                disabled={creditState === 'submitting' || creditState === 'unavailable'}>
+                {creditState === 'submitting' ? 'Raising…' : 'Raise claim'}
+              </button>
+            </>
+          ) : (
+            <span className="gx-finish-text">
+              <strong className="gx-good"><CheckIcon className="gx-finish-icon" />All received</strong>
+              <span>Every line matches the invoice.</span>
+            </span>
+          )}
         </div>
       )}
+
+      {openLine && (
+        <LineSheet
+          line={openLine}
+          status={getStatus(openLine)}
+          onClose={closeSheet}
+          onStatus={(s, q) => updateStatus(openLine.id, s, q)}
+          onPatch={p => patchLine(openLine.id, p)}
+          onNotesChange={n => setLines(prev => prev.map(l => (l.id === openLine.id ? { ...l, notes: n } : l)))}
+        />
+      )}
+
+      {scanning && <PackReceiving invoiceId={invoiceId} invoiceNumber={invoiceNumber} lines={lines} onClose={closeScanner} />}
     </div>
   );
 }
 
-/**
- * One line row — main row PLUS optional follow-up rows for damage
- * disposition and notes when the line is an exception.
- */
-function LineRow({
-  line,
-  status,
-  isException,
-  saveState,
-  onStatusChange,
-  onQtyChange,
-  onQtyCommit,
-  onDispositionChange,
-  onReturnDispositionChange,
-  onQtyReturnedCommit,
-  onNotesChange,
-  onNotesCommit,
-}: {
-  line: Line;
-  status: LineStatus;
-  isException: boolean;
-  saveState: SaveState;
-  onStatusChange: (s: LineStatus) => void;
-  onQtyChange: (q: number) => void;
-  onQtyCommit: (q: number) => void;
-  onDispositionChange: (d: DamageDisposition) => void;
-  onReturnDispositionChange: (d: ReturnDisposition) => void;
-  onQtyReturnedCommit: (q: number) => void;
-  onNotesChange: (n: string) => void;
-  onNotesCommit: (n: string) => void;
+function LineRow({ line, status, saveState, onTick, onMore }: {
+  line: Line; status: LineStatus; saveState: SaveState; onTick: () => void; onMore: () => void;
 }) {
+  const st = statusText(line, status);
+  const problem = line.flags.length > 0;
+  const tickClass = status === 'full' ? 'is-good' : problem ? 'is-warn' : status === 'partial' ? 'is-part' : '';
+  const tickLabel = status === 'pending' || status === 'partial' ? `Mark ${line.description} received in full` : `Change ${line.description}`;
   return (
-    <>
-      <tr className={isException ? 'is-warning' : undefined}>
-        <td style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--muted)' }}>
-          {line.supplier_sku}
-        </td>
-        <td>
-          <p style={{ margin: 0, fontWeight: 500 }}>{line.description}</p>
-          {line.pack_size && (
-            <p style={{ fontSize: '11px', color: 'var(--muted)', margin: '0.125rem 0 0 0' }}>
-              Pack: {line.pack_size}
-            </p>
-          )}
-        </td>
-        <td className="num">
-          <QtyCell
-            line={line}
-            status={status}
-            onCommit={onQtyCommit}
-            onChange={onQtyChange}
-          />
-        </td>
-        <td className="num">£{Number(line.net).toFixed(2)}</td>
-        <td>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <select
-              value={status}
-              disabled={saveState === 'saving'}
-              onChange={e => onStatusChange(e.target.value as LineStatus)}
-              className="status-select"
-              style={{ ['--status-dot-color' as string]: statusDotColor[status] }}
-              aria-busy={saveState === 'saving'}
-            >
-              <option value="pending" disabled>{statusLabels.pending}</option>
-              <option value="partial" disabled>{statusLabels.partial}</option>
-              <option value="full">{statusLabels.full}</option>
-              <option value="short">{statusLabels.short}</option>
-              <option value="damaged">{statusLabels.damaged}</option>
-              <option value="returned">{statusLabels.returned}</option>
-              <option value="none">{statusLabels.none}</option>
-            </select>
-            <SaveIndicator state={saveState} />
-            {/* Credited-via badge — shows up only when this returned line has
-             * been auto-resolved against a CRED row on a supplier statement.
-             * Reassures the pharmacist that the credit has actually landed. */}
-            {line.credited_via_statement_line_id && (
-              <span
-                className="badge badge-success"
-                title="A credit note for this line has appeared on a supplier statement and been matched to it."
-              >
-                Credited
-              </span>
-            )}
-          </div>
-        </td>
-      </tr>
-
-      {/* Follow-up row: only renders for exceptions, holds disposition + notes.
-       *
-       * Two columns: an empty SKU column to keep alignment, then the controls
-       * spanning the remaining four columns. Controls indent further from the
-       * description text so they read as a clear continuation of the row above. */}
-      {isException && (
-        <tr className="exception-followup">
-          <td />
-          <td colSpan={4} className="exception-followup-cell">
-            {status === 'damaged' && (
-              <label className="exception-followup-control">
-                <span className="exception-followup-label">Disposition</span>
-                <select
-                  value={line.damage_disposition ?? 'awaiting'}
-                  onChange={e =>
-                    onDispositionChange(e.target.value as Exclude<DamageDisposition, null>)
-                  }
-                  className="exception-followup-select"
-                >
-                  <option value="returning">{dispositionLabels.returning}</option>
-                  <option value="disposed">{dispositionLabels.disposed}</option>
-                  <option value="awaiting">{dispositionLabels.awaiting}</option>
-                </select>
-              </label>
-            )}
-
-            {status === 'returned' && (
-              <>
-                <label className="exception-followup-control">
-                  <span className="exception-followup-label">Qty returned</span>
-                  <ReturnedQtyInput
-                    line={line}
-                    onCommit={onQtyReturnedCommit}
-                  />
-                </label>
-                <label className="exception-followup-control">
-                  <span className="exception-followup-label">Reason</span>
-                  <select
-                    value={line.return_disposition ?? 'other'}
-                    onChange={e =>
-                      onReturnDispositionChange(e.target.value as Exclude<ReturnDisposition, null>)
-                    }
-                    className="exception-followup-select"
-                  >
-                    <option value="damaged">{returnDispositionLabels.damaged}</option>
-                    <option value="wrong_product">{returnDispositionLabels.wrong_product}</option>
-                    <option value="expired">{returnDispositionLabels.expired}</option>
-                    <option value="over_ordered">{returnDispositionLabels.over_ordered}</option>
-                    <option value="other">{returnDispositionLabels.other}</option>
-                  </select>
-                </label>
-              </>
-            )}
-
-            <label className="exception-followup-control" style={{ flex: '1 1 18rem' }}>
-              <span className="exception-followup-label">Note</span>
-              <input
-                type="text"
-                value={line.notes ?? ''}
-                onChange={e => onNotesChange(e.target.value)}
-                onBlur={e => onNotesCommit(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                }}
-                placeholder="Optional — e.g. wet packaging, expired Mar 26"
-                className="exception-followup-input"
-              />
-            </label>
-          </td>
-        </tr>
-      )}
-    </>
-  );
-}
-
-/** Compact qty-returned input for the partial-return case. */
-function ReturnedQtyInput({
-  line,
-  onCommit,
-}: {
-  line: Line;
-  onCommit: (qty: number) => void;
-}) {
-  const [value, setValue] = useState<number>(line.qty_returned ?? line.qty_ordered);
-
-  // Re-sync when the underlying line changes (e.g. after server refresh)
-  useEffect(() => {
-    setValue(line.qty_returned ?? line.qty_ordered);
-  }, [line.qty_returned, line.qty_ordered]);
-
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem' }}>
-      <input
-        type="number"
-        min={1}
-        max={line.qty_ordered}
-        value={value}
-        onChange={e => {
-          let v = parseInt(e.target.value) || 0;
-          if (v < 1) v = 1;
-          if (v > line.qty_ordered) v = line.qty_ordered;
-          setValue(v);
-        }}
-        onBlur={() => {
-          if (value !== (line.qty_returned ?? line.qty_ordered)) onCommit(value);
-        }}
-        onKeyDown={e => {
-          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-        }}
-        style={{
-          width: '3.5rem',
-          height: '1.75rem',
-          padding: '0 0.4rem',
-          textAlign: 'right',
-          borderRadius: '0.375rem',
-          border: '1px solid var(--border)',
-          background: 'var(--input-bg)',
-          color: 'var(--foreground)',
-          fontSize: '12px',
-          fontVariantNumeric: 'tabular-nums',
-          fontFamily: 'inherit',
-        }}
-      />
-      <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
-        of {line.qty_ordered}
-      </span>
-    </span>
-  );
-}
-
-/**
- * Qty cell — shows "M ordered" by default, swaps to "[N] of M" input when short.
- * Both states keep the qty_ordered context visible.
- */
-function QtyCell({
-  line,
-  status,
-  onCommit,
-  onChange,
-}: {
-  line: Line;
-  status: LineStatus;
-  onCommit: (qty: number) => void;
-  onChange: (qty: number) => void;
-}) {
-  if (status === 'pending' || status === 'partial') return <span>{line.qty_received ?? '—'} of {line.qty_ordered}</span>;
-  if (status === 'short') {
-    return (
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem' }}>
-        <input
-          type="number"
-          min={0}
-          max={line.qty_ordered - 1}
-          value={line.qty_received ?? 0}
-          onChange={e => {
-            let v = parseInt(e.target.value) || 0;
-            if (v < 0) v = 0;
-            if (v >= line.qty_ordered) v = line.qty_ordered - 1;
-            onChange(v);
-          }}
-          onBlur={() => onCommit(line.qty_received ?? 0)}
-          onKeyDown={e => {
-            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-          }}
-          style={{
-            width: '3.5rem',
-            height: '1.75rem',
-            padding: '0 0.4rem',
-            textAlign: 'right',
-            borderRadius: '0.375rem',
-            border: '1px solid var(--border)',
-            background: 'var(--input-bg)',
-            color: 'var(--foreground)',
-            fontSize: '12px',
-            fontVariantNumeric: 'tabular-nums',
-            fontFamily: 'inherit',
-          }}
-        />
-        <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
-          of {line.qty_ordered}
+    <li className={`gx-row${problem ? ' is-problem' : ''}`}>
+      <button type="button" className={`gx-tick ${tickClass}`} onClick={onTick} aria-label={tickLabel} disabled={saveState === 'saving'}>
+        <span className="gx-tick-mark">
+          {status === 'full' ? <CheckIcon /> : problem ? <b aria-hidden="true">!</b> : null}
         </span>
+      </button>
+      <button type="button" className="gx-body" onClick={onMore}>
+        <span className="gx-name">{line.description}</span>
+        <span className="gx-meta">
+          {line.pack_size ? `Pack ${line.pack_size} · ` : ''}{line.qty_ordered} ordered
+          <span className="gi-phone"> · {money(Number(line.net))}</span>
+        </span>
+        {(status !== 'pending' && status !== 'full' || line.credited_via_statement_line_id) && <span className="gx-meta gx-state gi-phone">
+          <i className={`gi-dot is-${st.tone}`} />{st.text}
+          {line.credited_via_statement_line_id && <span className="gx-credited">Credited</span>}
+        </span>}
+      </button>
+      <span className="gx-code gi-desk tnum">{line.supplier_sku}</span>
+      <span className="gx-qty gi-desk tnum">{line.qty_received ?? '–'} <small>of {line.qty_ordered}</small></span>
+      <span className="gx-net gi-desk tnum">{money(Number(line.net))}</span>
+      <span className="gx-status gi-desk">
+        <span className="gi-status"><i className={`gi-dot is-${st.tone}`} />{st.text}</span>
+        {line.credited_via_statement_line_id && <span className="gx-credited" title="A credit for this line has been matched on a supplier statement.">Credited</span>}
       </span>
-    );
-  }
-
-  if (status === 'none') {
-    return (
-      <span>
-        <span style={{ color: 'var(--status-critical-text)', fontWeight: 500 }}>0</span>
-        <span style={{ fontSize: '11px', color: 'var(--muted)' }}> of {line.qty_ordered}</span>
+      <span className="gx-side">
+        <SaveMark state={saveState} />
+        <button type="button" className="gx-more" onClick={onMore} aria-label={`Options for ${line.description}`}>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r="1.4" /><circle cx="8" cy="8" r="1.4" /><circle cx="12.5" cy="8" r="1.4" /></svg>
+        </button>
       </span>
-    );
-  }
-
-  // full or damaged — full quantity received
-  return (
-    <span>
-      <span style={{ fontWeight: 500 }}>{line.qty_ordered}</span>
-      <span style={{ fontSize: '11px', color: 'var(--muted)' }}> of {line.qty_ordered}</span>
-    </span>
+    </li>
   );
 }
 
-/**
- * Inline save state next to each row's status select.
- */
-function SaveIndicator({ state }: { state: SaveState }) {
-  if (state === 'idle') {
-    return <span style={{ width: '0.875rem', display: 'inline-block' }} />;
+function SaveMark({ state }: { state: SaveState }) {
+  if (state === 'saving') return <span className="gx-save is-saving" title="Saving" />;
+  if (state === 'saved') return <span className="gx-save is-saved" title="Saved"><CheckIcon /></span>;
+  if (state === 'error') return <span className="gx-save is-error" title="Not saved. Try again." role="alert">Not saved</span>;
+  return <span className="gx-save" />;
+}
+
+type Choice = 'full' | 'short' | 'damaged' | 'returned' | 'none';
+
+function LineSheet({ line, status, onClose, onStatus, onPatch, onNotesChange }: {
+  line: Line; status: LineStatus; onClose: () => void;
+  onStatus: (s: LineStatus, qty?: number) => Promise<void>;
+  onPatch: (p: Patch) => Promise<void>;
+  onNotesChange: (n: string) => void;
+}) {
+  const [expanded, setExpanded] = useState<Choice | null>(status === 'short' || status === 'damaged' || status === 'returned' ? status : null);
+  const [shortQty, setShortQty] = useState(status === 'short' ? line.qty_received ?? 0 : Math.max(0, line.qty_ordered - 1));
+  const [returnQty, setReturnQty] = useState(line.qty_returned ?? line.qty_ordered);
+
+  const options: { key: Choice; label: string }[] = [
+    { key: 'full', label: 'Received in full' },
+    { key: 'short', label: 'Short' },
+    { key: 'damaged', label: 'Damaged' },
+    { key: 'returned', label: 'Returned' },
+    { key: 'none', label: 'Not received' },
+  ];
+
+  async function choose(key: Choice) {
+    if (key === 'full' || key === 'none') { await onStatus(key); onClose(); return; }
+    if (key === 'short') { setExpanded('short'); return; }
+    setExpanded(key);
+    if (status !== key) await onStatus(key);
   }
-  if (state === 'saving') {
-    return (
-      <span
-        title="Saving"
-        style={{
-          width: '0.875rem',
-          height: '0.875rem',
-          borderRadius: '50%',
-          border: '2px solid var(--border)',
-          borderTopColor: 'var(--foreground)',
-          animation: 'reckon-spin 700ms linear infinite',
-          display: 'inline-block',
-        }}
-      />
-    );
-  }
-  if (state === 'saved') {
-    return (
-      <span
-        title="Saved"
-        style={{
-          fontSize: '12px',
-          color: 'var(--status-success-text)',
-          lineHeight: 1,
-        }}
-      >
-        ✓
-      </span>
-    );
-  }
+
   return (
-    <span
-      title="Save failed"
-      style={{
-        fontSize: '12px',
-        color: 'var(--status-critical-text)',
-        lineHeight: 1,
-      }}
-    >
-      ✕
-    </span>
+    <Sheet title={line.description} subtitle={`${line.pack_size ? `Pack ${line.pack_size} · ` : ''}${line.qty_ordered} ordered · ${money(Number(line.net))} net · ${line.supplier_sku}`} onClose={onClose}>
+      <ul className="gi-options">
+        {options.map(o => (
+          <li key={o.key}>
+            <button type="button" className="gi-option" aria-pressed={status === o.key} onClick={() => void choose(o.key)}>
+              {o.label}
+              {status === o.key && <CheckIcon className="gi-check" />}
+            </button>
+            {expanded === 'short' && o.key === 'short' && (
+              <div className="gi-option-detail">
+                <div className="gi-field-row">
+                  <span>Packs received</span>
+                  <Stepper label="Packs received" value={shortQty} min={0} max={Math.max(0, line.qty_ordered - 1)} onChange={setShortQty} />
+                </div>
+                <button type="button" className="gi-btn gi-btn-primary" onClick={async () => { await onStatus('short', shortQty); onClose(); }}>
+                  Save · {shortQty} of {line.qty_ordered} received
+                </button>
+              </div>
+            )}
+            {expanded === 'damaged' && o.key === 'damaged' && status === 'damaged' && (
+              <div className="gi-option-detail">
+                <span className="gi-field">What happens to it</span>
+                <div className="gi-chips">
+                  {(Object.keys(dispositionLabels) as Exclude<DamageDisposition, null>[]).map(d => (
+                    <button key={d} type="button" className="gi-chip" aria-pressed={(line.damage_disposition ?? 'awaiting') === d}
+                      onClick={() => void onPatch({ damage_disposition: d })}>{dispositionLabels[d]}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {expanded === 'returned' && o.key === 'returned' && status === 'returned' && (
+              <div className="gi-option-detail">
+                <div className="gi-field-row">
+                  <span>Packs returned</span>
+                  <Stepper label="Packs returned" value={returnQty} min={1} max={line.qty_ordered}
+                    onChange={n => { setReturnQty(n); void onPatch({ qty_returned: n }); }} />
+                </div>
+                <span className="gi-field">Reason</span>
+                <div className="gi-chips">
+                  {(Object.keys(returnLabels) as Exclude<ReturnDisposition, null>[]).map(d => (
+                    <button key={d} type="button" className="gi-chip" aria-pressed={(line.return_disposition ?? 'other') === d}
+                      onClick={() => void onPatch({ return_disposition: d })}>{returnLabels[d]}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+      {line.credited_via_statement_line_id && (
+        <p className="gx-sheet-note"><i className="gi-dot is-good" />A credit for this line has been matched on a supplier statement.</p>
+      )}
+      <label className="gi-field" style={{ marginTop: 16 }}>
+        Note
+        <input className="gi-input" type="text" value={line.notes ?? ''} placeholder="For example: wet packaging, expires Mar 27"
+          onChange={e => onNotesChange(e.target.value)}
+          onBlur={e => void onPatch({ notes: e.target.value || null })}
+          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
+      </label>
+      <ScanHistory lineId={line.id} />
+      <button type="button" className="gi-btn gi-btn-quiet gi-btn-block" style={{ marginTop: 20 }} onClick={onClose}>Done</button>
+    </Sheet>
+  );
+}
+
+type ReceiptEvent = { id: string; quantity: number; gtin: string; batch: string | null; expiry: string | null; serial: string | null; recorded_at: string };
+
+/** Scanned packs for one line, loaded when opened. Manual changes are not scans. */
+function ScanHistory({ lineId }: { lineId: string }) {
+  const [open, setOpen] = useState(false);
+  const [state, setState] = useState<{ events: ReceiptEvent[]; error: string; loaded: boolean }>({ events: [], error: '', loaded: false });
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    fetch(`/api/receiving?lineId=${encodeURIComponent(lineId)}`, { signal: controller.signal })
+      .then(async r => { const data = await r.json(); if (!r.ok) throw Error(data.error); setState({ events: data.events, error: '', loaded: true }); })
+      .catch(e => { if (!controller.signal.aborted) setState({ events: [], error: e instanceof Error ? e.message : 'History unavailable', loaded: true }); });
+    return () => controller.abort();
+  }, [open, lineId]);
+  return (
+    <details className="gx-history" onToggle={e => setOpen((e.target as HTMLDetailsElement).open)}>
+      <summary>Scanned packs</summary>
+      {!state.loaded ? <p className="gi-note">Loading…</p>
+        : state.error ? <p className="gi-error">{state.error}</p>
+        : state.events.length ? (
+          <ul>
+            {state.events.map(e => (
+              <li key={e.id}>
+                <span className="tnum">{e.quantity} {e.quantity === 1 ? 'pack' : 'packs'}</span>
+                <span>{new Date(e.recorded_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })}</span>
+                <small>{[e.batch && `Batch ${e.batch}`, e.expiry && `Exp ${e.expiry}`, e.serial && `Serial ${e.serial}`].filter(Boolean).join(' · ') || `GTIN ${e.gtin}`}</small>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="gi-note">No scans recorded for this line.</p>}
+    </details>
   );
 }

@@ -1,0 +1,28 @@
+/* Deliveries before their invoice. */
+.rc-page { display: grid; gap: 16px; max-width: 52rem; }
+.rc-head h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.025em; }
+.rc-head p { margin: 4px 0 0; font-size: 14px; color: var(--gi-ink-soft); line-height: 1.5; max-width: 36rem; }
+.rc { display: grid; gap: 16px; }
+.rc-actions { display: flex; }
+.rc-row { width: 100%; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.rc-row .gi-row-sub + .gi-row-sub { margin-top: 3px; color: var(--gi-ink); }
+.rc-toggle {
+  border: 0; background: transparent; padding: 0; min-height: 32px; cursor: pointer;
+  color: var(--gi-ink-soft); font: inherit; font-size: 13px;
+}
+.rc-toggle:hover { color: var(--gi-ink); }
+.rc-facts { margin: 0 0 16px; display: grid; gap: 10px; }
+.rc-facts dt { font-size: 12px; color: var(--gi-ink-faint); }
+.rc-facts dd { margin: 2px 0 0; font-size: 14px; line-height: 1.5; }
+.rc-link, .rc-form { display: grid; gap: 14px; }
+.rc-confirm { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: var(--gi-ink-soft); line-height: 1.45; }
+.rc-confirm input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: var(--gi-brand); }
+.rc-upload { justify-self: center; }
+.rc-notes { min-height: 88px; padding: 10px 12px; resize: vertical; }
+@media (max-width: 768px) {
+  .rc-page { gap: 12px; }
+  .rc-head h1 { font-size: 24px; }
+  .rc-actions .gi-btn { width: 100%; min-height: 52px; font-size: 16px; }
+  .rc-page .gi-card-head { padding: 14px 16px 6px; }
+  .rc-page .gi-rows { padding: 0 4px 6px; }
+}
