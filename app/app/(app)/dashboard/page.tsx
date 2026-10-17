@@ -1,34 +1,142 @@
 import Link from 'next/link';
-import { loadOperations } from '@/lib/operations-data';
+import { loadHome, type DeliveryToCheck, type OpenClaim } from '@/lib/home/home-data';
+import { daysSince, money, shortDate, supplierName } from '@/lib/goods-in/supplier';
+import { Chevron, ScanIcon, SupplierBadge, Track } from '@/components/goods-in/ui';
+import SupplierDonut from '@/components/home/supplier-donut';
+import '@/components/goods-in/goods-in.css';
+import './home.css';
 
-const money = (n: number) => new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(n);
-export default async function DashboardPage() {
+const SHOWN = 6;
+
+export default async function HomePage() {
   let data;
-  try { data = await loadOperations(); } catch {
-    return <section className="card ops-panel" role="alert"><h1 className="page-title">Overview unavailable</h1><p>We couldn’t load all your records. Refresh to try again. No partial totals are shown.</p></section>;
+  try { data = await loadHome(); } catch {
+    return (
+      <div className="gi">
+        <section className="gi-card" role="alert" style={{ padding: 20 }}>
+          <h1 className="hm-title">Home is unavailable</h1>
+          <p className="gi-note">Your records could not all be loaded, so no partial totals are shown. Refresh to try again.</p>
+        </section>
+      </div>
+    );
   }
-  // Counts and the oldest few rows come pre-computed from dashboard_summary().
-  const pending = data.unfinished;
-  const openTotal = Number(data.open_total);
-  const waiting = data.aged;
-  return <div className="operations-overview">
-    <header className="ops-heading"><div><p className="section-label">Your pharmacy workspace</p><h1 className="page-title">Receive. Check. Follow up.</h1><p className="ops-muted">Uploaded invoices and outstanding credits, across pharmacies you can access.</p></div><Link href="/upload" className="btn btn-primary">Upload documents</Link></header>
-    <section className="dash-kpi-grid" aria-label="Work to do">
-      <Metric title="Receipts to finish" value={String(data.unfinished_count)} detail="Invoices with unchecked or missing lines" href="/invoices" />
-      <Metric title="Receipts with issues" value={String(data.issue_count)} detail="Quantity differences or flagged lines" href="/invoices" />
-      <Metric title="Credit requests" value={money(openTotal)} detail={`${data.open_count} draft or sent · not money recovered`} href="/credits" />
-      <Metric title="Claims to review" value={String(data.aged_count)} detail="Marked overdue or open for 14 days" href="/credits" />
-    </section>
-    <div className="dash-body-grid">
-      <section className="card ops-panel"><div className="ops-heading"><div><h2>Finish receiving</h2><p className="ops-muted">Oldest uploads first. An upload does not confirm delivery.</p></div><Link href="/invoices">All invoices →</Link></div>
-      {pending.length ? <ul className="ops-list">{pending.map(r => <li key={r.id}><Link href={`/invoices/${r.id}`} className="ops-receipt"><div><strong>{r.supplier.toUpperCase()} · {r.invoice_number}</strong><span className="ops-muted">Invoice {r.invoice_date} · {money(Number(r.gross_total))}</span></div><span className="badge badge-warning">{r.lines ? `${r.pending} unchecked` : 'No lines — review'}</span></Link></li>)}</ul> : <div className="ops-empty"><h3>{data.receipt_count ? 'No unchecked receipts' : 'Start with an invoice'}</h3><p>{data.receipt_count ? 'Recorded quantities are complete. Review any issues separately.' : 'Upload a supplier invoice, then open it to scan packs or record quantities.'}</p><Link className="btn btn-secondary" href={data.receipt_count ? '/invoices' : '/upload'}>{data.receipt_count ? 'Review receipts' : 'Upload an invoice'}</Link></div>}
+  const [next, ...rest] = data.toCheck;
+
+  return (
+    <div className="gi hm">
+      <header className="hm-head">
+        <h1 className="hm-title">Home</h1>
+        <Link href="/upload" className="gi-btn gi-btn-quiet gi-btn-sm gi-desk">Upload invoice</Link>
+      </header>
+
+      <section className="hm-figs" aria-label="At a glance">
+        <Figure className="gi-desk" href="/invoices" value={String(data.toCheckCount)} label={data.toCheckCount === 1 ? 'Delivery to check' : 'Deliveries to check'} />
+        <Figure href="/credits" value={money(data.owed)} label="Money owed" />
+        <Figure href="/credits" value={money(data.overdue)} label={data.overdueCount ? `Overdue · ${data.overdueCount} over 14 days` : 'Overdue'} tone={data.overdue > 0 ? 'warn' : undefined} />
+        <Figure className="gi-desk" href="/statements" value={money(data.statementGap)} label="Statement differences" />
+        <Figure className="gi-desk" href="/credits" value={money(data.recovered)} label={`Recovered in ${data.month}`} tone={data.recovered > 0 ? 'good' : undefined} />
       </section>
-      <section className="card ops-panel"><h2>Review outstanding claims</h2><p className="ops-muted">Age is measured from the recorded send date, not the last chase.</p>{waiting.length ? <ul className="ops-list">{waiting.map(c => <li key={c.id}><Link href="/credits" className="ops-receipt"><div><strong>{c.supplier.toUpperCase()}</strong><span className="ops-muted">{c.sent_at ? `Sent ${new Date(c.sent_at).toLocaleDateString('en-GB',{timeZone:'Europe/London'})}` : 'No send date recorded'}</span></div><strong>{money(Number(c.total_amount))}</strong></Link></li>)}</ul> : <div className="ops-empty"><p>No claims currently meet this review threshold.</p></div>}<Link className="btn btn-secondary" href="/credits">Review credit requests</Link></section>
+
+      <section className="gi-card hm-deliveries" aria-labelledby="hm-deliveries-title">
+        <div className="gi-card-head">
+          <h2 id="hm-deliveries-title">Deliveries to check</h2>
+          <span className="gi-phone gi-aside">{data.toCheckCount ? `${data.toCheckCount} waiting` : ''}</span>
+          <Link href="/invoices" className="gi-link gi-desk">All invoices</Link>
+        </div>
+        {!next ? (
+          <p className="gi-empty">Every delivery is checked. Upload an invoice when the next one arrives.</p>
+        ) : (
+          <>
+            {/* Phones: the next delivery, a big scan button, the rest folded. */}
+            <div className="gi-phone">
+              <ul className="gi-rows"><li><DeliveryRow d={next} /></li></ul>
+              <div className="hm-scan">
+                <Link href={`/invoices/${next.id}?scan=1`} className="gi-btn gi-btn-primary gi-btn-block"><ScanIcon />Scan delivery</Link>
+              </div>
+              {rest.length > 0 && (
+                <details className="hm-fold">
+                  <summary><span>{rest.length} more to check</span><Chevron down /></summary>
+                  <ul className="gi-rows">{rest.map(d => <li key={d.id}><DeliveryRow d={d} /></li>)}</ul>
+                </details>
+              )}
+            </div>
+            <div className="gi-desk">
+              <ul className="gi-rows">{data.toCheck.slice(0, SHOWN).map(d => <li key={d.id}><DeliveryRow d={d} /></li>)}</ul>
+              {data.toCheck.length > SHOWN && <p className="hm-more"><Link href="/invoices" className="gi-link">Show all {data.toCheck.length}</Link></p>}
+            </div>
+          </>
+        )}
+      </section>
+
+      <div className="hm-donut-slot">
+        <SupplierDonut views={[
+          { key: 'spend', label: 'Spend', aside: `${data.month} to date`, centre: 'spent', empty: `No invoices dated in ${data.month} yet.`, slices: data.spend },
+          { key: 'owed', label: 'Money owed', aside: 'Open claims', centre: 'owed', empty: 'No open claims.', slices: data.owedBySupplier },
+        ]} />
+      </div>
+
+      <section className="gi-card hm-claims" aria-labelledby="hm-claims-title">
+        <div className="gi-card-head">
+          <h2 id="hm-claims-title">Claims to send or chase</h2>
+          <Link href="/credits" className="gi-link">Credits</Link>
+        </div>
+        {data.claims.length ? (
+          <ul className="gi-rows">{data.claims.slice(0, SHOWN).map(c => <li key={c.id}><ClaimRow c={c} /></li>)}</ul>
+        ) : <p className="gi-empty">Nothing to send or chase. Problems you record on a delivery become claims here.</p>}
+        {data.claims.length > SHOWN && <p className="hm-more"><Link href="/credits" className="gi-link">Show all {data.claims.length}</Link></p>}
+      </section>
     </div>
-    <section className="card ops-panel ops-suppliers"><div className="ops-heading"><div><h2>Supplier overview</h2><p className="ops-muted">All uploaded history. Invoice gross includes VAT; requests are not confirmed credits or savings.</p></div><a className="btn btn-secondary" href="/api/reports/suppliers">Download CSV</a></div><div className="table-scroll"><table className="table"><caption className="sr-only">Invoice and receipt work by supplier and pharmacy</caption><thead><tr><th>Supplier</th><th>Pharmacy ID</th><th className="num">Invoice gross</th><th className="num">Unchecked lines</th><th className="num">Issue lines</th><th className="num">Open credits</th></tr></thead><tbody>{data.suppliers.map(r => <tr key={r.pharmacy+r.supplier}><th scope="row">{r.supplier.toUpperCase()}</th><td><span title={r.pharmacy}>{r.pharmacy.slice(0,8)}</span></td><td className="num">{money(r.invoiceGross)}</td><td className="num">{r.pending}</td><td className="num">{r.exceptions}</td><td className="num">{money(r.claimTotal)}</td></tr>)}</tbody></table>{!data.suppliers.length && <p className="ops-empty">Your supplier summary will appear after an upload.</p>}</div></section>
-    <p className="ops-muted">Receipt checks, credit reconciliation and physical put-away are separate steps. This overview does not represent live stock or pharmacy profit.</p>
-  </div>;
+  );
 }
-function Metric({title,value,detail,href}:{title:string;value:string;detail:string;href:string}) {
-  return <Link href={href} className="card ops-metric"><span className="section-label">{title}</span><strong>{value}</strong><span className="ops-muted">{detail}</span></Link>;
+
+function Figure({ value, label, href, tone, className }: { value: string; label: string; href: string; tone?: 'good' | 'warn'; className?: string }) {
+  return (
+    <Link href={href} className={`gi-card hm-fig${className ? ` ${className}` : ''}`}>
+      <strong className={`tnum${tone ? ` is-${tone}` : ''}`}>{value}</strong>
+      <span>{label}</span>
+    </Link>
+  );
+}
+
+function DeliveryRow({ d }: { d: DeliveryToCheck }) {
+  const problems = d.issues;
+  const ok = Math.max(0, d.checked - problems);
+  return (
+    <Link href={`/invoices/${d.id}`} className="gi-row">
+      <SupplierBadge supplier={d.supplier} />
+      <span style={{ minWidth: 0 }}>
+        <span className="gi-row-title">{supplierName(d.supplier)} · {d.invoice_number}</span>
+        <span className="gi-row-sub">
+          <span>{d.lines ? <>{d.checked} of {d.lines} <span className="gi-desk">lines </span>checked</> : 'No lines read · review'}</span>
+          {problems > 0 && <span className="gi-status"><i className="gi-dot is-warn" />{problems} {problems === 1 ? 'problem' : 'problems'}</span>}
+        </span>
+        <Track total={d.lines} good={ok} warn={problems} />
+      </span>
+      <span className="gi-row-fig">
+        <strong>{money(d.gross_total)}</strong>
+        <small>{shortDate(d.invoice_date)}</small>
+      </span>
+      <Chevron />
+    </Link>
+  );
+}
+
+function ClaimRow({ c }: { c: OpenClaim }) {
+  const waited = c.sent_at ? daysSince(c.sent_at) : 0;
+  const status = c.status === 'draft'
+    ? <span className="gi-status"><i className="gi-dot is-open" />Draft · ready to send</span>
+    : c.overdue
+    ? <span className="gi-status"><i className="gi-dot is-warn" />Overdue · sent {c.sent_at ? shortDate(c.sent_at) : ''}, {waited} days</span>
+    : <span className="gi-status"><i className="gi-dot" />Sent {c.sent_at ? `${shortDate(c.sent_at)} · ${waited} ${waited === 1 ? 'day' : 'days'}` : '· no date recorded'}</span>;
+  return (
+    <Link href="/credits" className="gi-row">
+      <SupplierBadge supplier={c.supplier} />
+      <span style={{ minWidth: 0 }}>
+        <span className="gi-row-title">{supplierName(c.supplier)}</span>
+        <span className="gi-row-sub">{status}</span>
+      </span>
+      <span className="gi-row-fig"><strong className={c.overdue ? 'hm-warn-ink' : undefined}>{money(c.total)}</strong></span>
+      <Chevron />
+    </Link>
+  );
 }
