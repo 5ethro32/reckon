@@ -6,7 +6,8 @@
  */
 
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/server';
+import { getRequestClient } from '@/lib/session';
+import { Figure, money } from '../ui';
 import CreditsTable, {
   type OutstandingRequest,
   type FlaggedLine,
@@ -41,7 +42,7 @@ type FlaggedLineRow = {
 };
 
 export default async function CreditsPage() {
-  const supabase = await createClient();
+  const supabase = await getRequestClient();
 
   // Both reads are independent, so they run in parallel.
   const [
@@ -121,36 +122,48 @@ export default async function CreditsPage() {
       return b.invoice_date.localeCompare(a.invoice_date);
     });
 
+  // What is still owed: open claims, the part of it that has waited too long,
+  // and flagged lines nobody has claimed yet.
   const outstandingTotal = outstanding.reduce((s, r) => s + r.total_amount, 0);
+  const now = Date.now();
+  const waited = outstanding.filter(r => r.status !== 'draft' && (r.status === 'overdue' || (r.sent_at !== null && now - new Date(r.sent_at).getTime() >= 14 * 86400000)));
+  const waitedTotal = waited.reduce((s, r) => s + r.total_amount, 0);
+  const unclaimedTotal = flagged.reduce((s, l) => s + l.gross, 0);
 
   return (
     <div>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-          marginBottom: '1.5rem',
-          gap: '1rem',
-        }}
-      >
+      <div className="page-header">
         <div>
-          <h1 className="page-title" style={{ marginBottom: '0.25rem' }}>
-            Credit requests
-          </h1>
-          <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0 }}>
-            {outstanding.length} outstanding · £{outstandingTotal.toFixed(2)} total
-          </p>
+          <h1 className="page-header-title">Claims</h1>
+          <p className="page-header-subtitle">Credits you have asked suppliers for, and flagged lines still to claim.</p>
         </div>
-        <Link href="/suppliers" className="btn btn-secondary">
-          Supplier settings
-        </Link>
+        <Link href="/suppliers" className="btn btn-secondary">Claim emails</Link>
       </div>
 
       {outstanding.length === 0 && flagged.length === 0 ? (
         <EmptyState />
       ) : (
-        <CreditsTable outstanding={outstanding} flagged={flagged} />
+        <>
+          <section className="figures" aria-label="Still owed">
+            <Figure
+              label="Owed to you"
+              value={money(outstandingTotal)}
+              line={outstanding.length ? `${outstanding.length} open claim${outstanding.length === 1 ? '' : 's'}` : 'No open claims'}
+            />
+            <Figure
+              label="Waiting too long"
+              value={money(waitedTotal)}
+              valueClass={waited.length ? 'text-warn' : undefined}
+              line={waited.length ? `${waited.length} over 14 days` : 'None over 14 days'}
+            />
+            <Figure
+              label="Not claimed yet"
+              value={money(unclaimedTotal)}
+              line={flagged.length ? `${flagged.length} flagged line${flagged.length === 1 ? '' : 's'}` : 'All claimed'}
+            />
+          </section>
+          <CreditsTable outstanding={outstanding} flagged={flagged} />
+        </>
       )}
     </div>
   );
@@ -158,40 +171,19 @@ export default async function CreditsPage() {
 
 function EmptyState() {
   return (
-    <div style={{ textAlign: 'center', padding: '4rem 1rem' }}>
-      <h2 style={{ fontSize: '15px', fontWeight: 600, margin: 0, marginBottom: '0.375rem' }}>
-        Nothing to chase
-      </h2>
-      <p
-        style={{
-          fontSize: '12px',
-          color: 'var(--muted)',
-          margin: 0,
-          marginBottom: '1.5rem',
-        }}
-      >
-        Flag a short or damaged line on a delivery to start a credit request.
-      </p>
-      <Link href="/invoices" className="btn btn-primary">
-        Go to deliveries
-      </Link>
+    <div className="card empty-card">
+      <h2>Nothing to claim</h2>
+      <p>Mark a line short, damaged or not received on a delivery and it appears here, ready to claim.</p>
+      <Link href="/invoices" className="btn btn-primary">Go to deliveries</Link>
     </div>
   );
 }
 
 function ErrorState({ message }: { message: string }) {
   return (
-    <div
-      style={{
-        padding: '1rem',
-        borderRadius: '0.5rem',
-        background: 'var(--status-critical-bg)',
-        border: '1px solid var(--status-critical-border)',
-        color: 'var(--status-critical-text)',
-      }}
-    >
-      <p style={{ fontSize: '13px', fontWeight: 500, margin: 0 }}>Couldn&apos;t load credits</p>
-      <p style={{ fontSize: '12px', margin: 0, marginTop: '0.25rem' }}>{message}</p>
+    <div className="card notice" role="alert">
+      <strong>Claims did not load</strong>
+      <p>{message}</p>
     </div>
   );
 }

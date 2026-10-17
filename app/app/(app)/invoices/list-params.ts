@@ -8,3 +8,7 @@ export type SortDir = 'asc' | 'desc';
 export function defaultSortDir(key: SortKey): SortDir {
   return key === 'date' || key === 'total' ? 'desc' : 'asc';
 }
+
+/** ?status= on the deliveries list. "open" is what Scan and Home call still to check. */
+export const STATUS_FILTERS = ['all', 'open', 'issues', 'done'] as const;
+export type StatusFilter = typeof STATUS_FILTERS[number];

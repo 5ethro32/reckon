@@ -13,6 +13,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import LogoutButton from '@/app/logout-button';
+import AppearanceCard from './appearance-card';
 import { CONTACT_EMAIL } from '@/lib/contact';
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
@@ -38,6 +39,7 @@ export default function SettingsForm({
         initialPharmacyName={initialPharmacyName}
         pharmacyId={pharmacyId}
       />
+      <AppearanceCard />
       <PasswordCard />
       <AccountCard />
     </div>

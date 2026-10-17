@@ -6,13 +6,13 @@
 
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { getCurrentUser } from '@/lib/session';
 import LoginForm from './login-form';
 import AuthFragmentBouncer from './auth-fragment-bouncer';
 
 export default async function HomePage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  // Checked locally from the session JWT; no Auth round trip.
+  const user = await getCurrentUser();
 
   if (user) {
     redirect('/dashboard');
