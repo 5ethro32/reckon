@@ -6,7 +6,8 @@
  * empty in practice, but we guard for it.
  */
 
-import { createClient } from '@/lib/supabase/server';
+import { Suspense } from 'react';
+import { getRequestClient } from '@/lib/session';
 import { CONTACT_EMAIL } from '@/lib/contact';
 import { parsePeriod } from '@/lib/period';
 import SupplierForm, { type SupplierContact } from './supplier-form';
@@ -14,7 +15,7 @@ import SupplierPerformance from './supplier-performance';
 
 export default async function SuppliersPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const period = parsePeriod(await searchParams);
-  const supabase = await createClient();
+  const supabase = await getRequestClient();
 
   const { data, error } = await supabase
     .from('supplier_contacts')
@@ -27,18 +28,24 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
 
   return (
     <div>
-      <div style={{ marginBottom: '1.5rem' }}>
-        <h1 className="page-title" style={{ marginBottom: '0.25rem' }}>
-          Suppliers
-        </h1>
-        <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0 }}>
-          How each supplier performed, and the email address Reckon uses for credit chase emails.
-        </p>
+      <div className="page-header">
+        <div>
+          <h1 className="page-header-title">Suppliers</h1>
+          <p className="page-header-subtitle">How each supplier performed, and where Reckon sends your claim emails.</p>
+        </div>
       </div>
 
-      <SupplierPerformance period={period} />
+      {/* Ratings read a report over the whole period; the contacts below do not wait for it. */}
+      <Suspense fallback={<div className="card" style={{ height: 220, marginBottom: '1.5rem' }} aria-busy="true" aria-label="Loading supplier ratings" />}>
+        <SupplierPerformance period={period} />
+      </Suspense>
 
-      <h2 className="section-label" style={{ margin: '0 0 0.75rem' }}>Credit chase contacts</h2>
+      <div className="section-head">
+        <div>
+          <h2>Claim emails</h2>
+          <p>Each field saves when you leave it.</p>
+        </div>
+      </div>
 
       {contacts.length === 0 ? (
         <EmptyState />
@@ -55,23 +62,11 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
 
 function EmptyState() {
   return (
-    <div
-      className="card"
-      style={{
-        textAlign: 'center',
-        padding: '3rem 1rem',
-      }}
-    >
-      <h2 style={{ fontSize: '14px', fontWeight: 600, margin: 0, marginBottom: '0.375rem' }}>
-        Hmm, no suppliers here yet
-      </h2>
-      <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0, lineHeight: 1.5 }}>
-        Suppliers should seed automatically when your pharmacy is set up.
-        If you’re seeing this, drop us a note at{' '}
-        <a href={`mailto:${CONTACT_EMAIL}`} style={{ color: 'var(--brand)' }}>
-          {CONTACT_EMAIL}
-        </a>{' '}
-        and we’ll fix it.
+    <div className="card empty-card">
+      <h2>No suppliers yet</h2>
+      <p>
+        Suppliers are added when your pharmacy is set up. If this stays empty, email{' '}
+        <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a> and we will sort it out.
       </p>
     </div>
   );
@@ -79,17 +74,9 @@ function EmptyState() {
 
 function ErrorState({ message }: { message: string }) {
   return (
-    <div
-      style={{
-        padding: '1rem',
-        borderRadius: '0.5rem',
-        background: 'var(--status-critical-bg)',
-        border: '1px solid var(--status-critical-border)',
-        color: 'var(--status-critical-text)',
-      }}
-    >
-      <p style={{ fontSize: '13px', fontWeight: 500, margin: 0 }}>Couldn&apos;t load suppliers</p>
-      <p style={{ fontSize: '12px', margin: 0, marginTop: '0.25rem' }}>{message}</p>
+    <div className="card notice" role="alert">
+      <strong>Suppliers did not load</strong>
+      <p>{message}</p>
     </div>
   );
 }

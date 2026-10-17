@@ -30,8 +30,8 @@ function BrandMark() {
       style={{ display: 'block' }}
     >
       <polygon points="130,120 202,160 202,240 130,200" fill="#67D2F3" />
-      <polygon points="130,200 202,160 202,240" fill="#2C2A9A" />
-      <polygon points="202,160 346,80 346,160 202,240" fill="#7163F6" />
+      <polygon points="130,200 202,160 202,240" fill="#0A5F87" />
+      <polygon points="202,160 346,80 346,160 202,240" fill="#109DDB" />
       <polygon points="130,280 202,240 202,344 130,384" fill="#109DDB" />
     </svg>
   );

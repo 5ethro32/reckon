@@ -1,9 +1,10 @@
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/server';
+import { getRequestClient } from '@/lib/session';
 import StatementsList from './statements-list';
+import { Figure, money, shortDate } from '../ui';
 
 export default async function StatementsPage() {
-  const supabase = await createClient();
+  const supabase = await getRequestClient();
 
   // Fast path: read the denormalised credits_pending_total column added by
   // migration 0008. If the migration hasn't been applied yet, the SELECT
@@ -94,17 +95,41 @@ export default async function StatementsPage() {
 
   if (!rows || rows.length === 0) return <EmptyState />;
 
+  // What is still owed: credits pending on matched invoices, and statement
+  // lines not yet matched to an invoice.
+  const owed = rows.reduce((n, r) => n + r.credits_pending, 0);
+  const owedOn = rows.filter(r => r.credits_pending > 0).length;
+  const unmatched = rows.reduce((n, r) => n + r.unreconciled_count, 0);
+  const unmatchedOn = rows.filter(r => r.unreconciled_count > 0).length;
+  const latest = rows[0]!;
+
   return (
     <div>
       <div className="page-header">
         <div>
           <h1 className="page-header-title">Statements</h1>
-          <p className="page-header-subtitle">
-            {rows.length} statement{rows.length === 1 ? '' : 's'}
-          </p>
+          <p className="page-header-subtitle">Each statement lined up against your invoices, and the credits still owed.</p>
         </div>
-        <Link href="/upload" className="btn btn-secondary">Upload PDFs</Link>
+        <Link href="/upload" className="btn btn-secondary">Upload statements</Link>
       </div>
+
+      <section className="figures" aria-label="Across all statements">
+        <Figure
+          label="Still owed to you"
+          value={money(owed)}
+          line={owed > 0 ? `Credits pending on ${owedOn} statement${owedOn === 1 ? '' : 's'}` : 'No credits pending'}
+        />
+        <Figure
+          label="Lines not matched"
+          value={String(unmatched)}
+          line={unmatched > 0 ? `On ${unmatchedOn} statement${unmatchedOn === 1 ? '' : 's'}` : 'Every line matches an invoice'}
+        />
+        <Figure
+          label="Latest statement"
+          value={shortDate(latest.statement_date)}
+          line={`${rows.length} statement${rows.length === 1 ? '' : 's'} in all`}
+        />
+      </section>
 
       <StatementsList rows={rows} />
     </div>
@@ -117,38 +142,13 @@ function EmptyState() {
       <div className="page-header">
         <div>
           <h1 className="page-header-title">Statements</h1>
-          <p className="page-header-subtitle">Upload a statement to cross-check what you’re being billed</p>
+          <p className="page-header-subtitle">Upload a statement to check what you are being billed.</p>
         </div>
       </div>
-      <div style={{
-        textAlign: 'center',
-        padding: '4rem 1.5rem',
-        border: '1.5px dashed var(--border-subtle)',
-        borderRadius: '0.75rem',
-        background: 'var(--card-bg)',
-      }}>
-        <svg
-          width="32"
-          height="32"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="var(--muted-light)"
-          strokeWidth="1.5"
-          style={{ marginBottom: '0.875rem' }}
-          aria-hidden
-        >
-          <path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="M14 3v6h6" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="M8 13h8M8 17h6" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-        <h2 style={{ fontSize: '15px', fontWeight: 600, margin: 0, marginBottom: '0.375rem' }}>
-          No statements yet
-        </h2>
-        <p style={{ fontSize: '12px', color: 'var(--muted)', margin: '0 auto 1.5rem', maxWidth: '24rem', lineHeight: 1.5 }}>
-          Upload a wholesaler statement PDF and Reckon will line it up
-          against your delivered invoices — so missed credits jump out.
-        </p>
-        <Link href="/upload" className="btn btn-primary">Upload PDFs</Link>
+      <div className="card empty-card">
+        <h2>No statements yet</h2>
+        <p>Upload a wholesaler statement and Reckon lines it up against your invoices, so a missed credit stands out.</p>
+        <Link href="/upload" className="btn btn-primary">Upload statements</Link>
       </div>
     </div>
   );
@@ -156,15 +156,9 @@ function EmptyState() {
 
 function ErrorState({ message }: { message: string }) {
   return (
-    <div style={{
-      padding: '1rem 1.25rem',
-      borderRadius: '0.5rem',
-      background: 'var(--status-critical-bg)',
-      border: '1px solid var(--status-critical-border)',
-      color: 'var(--status-critical-text)',
-    }}>
-      <p style={{ fontSize: '13px', fontWeight: 500, margin: 0 }}>Something went wrong</p>
-      <p style={{ fontSize: '12px', margin: 0, marginTop: '0.25rem' }}>{message}</p>
+    <div className="card notice" role="alert">
+      <strong>Statements did not load</strong>
+      <p>{message}</p>
     </div>
   );
 }

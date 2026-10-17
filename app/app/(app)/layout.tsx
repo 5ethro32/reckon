@@ -34,7 +34,7 @@ export default async function AppLayout({
 
   if (!membership.onboarded_at) {
     return (
-      <div style={{ minHeight: '100vh', background: 'var(--surface-raised)' }}>
+      <div style={{ minHeight: '100vh', background: 'var(--paper)' }}>
         <OnboardingModal currentPharmacyName={pharmacy.name} />
       </div>
     );

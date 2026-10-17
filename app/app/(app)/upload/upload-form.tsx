@@ -157,7 +157,7 @@ function UploadRow({ filename, status }: { filename: string; status: 'uploading'
               display: 'inline-block',
             }}
           />
-          <span style={{ fontSize: '11px', color: 'var(--muted)' }}>Parsing</span>
+          <span style={{ fontSize: '12px', color: 'var(--muted)' }}>Parsing</span>
         </span>
       </div>
     );
@@ -176,7 +176,7 @@ function UploadRow({ filename, status }: { filename: string; status: 'uploading'
         <span style={{ fontSize: '13px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {filename}
         </span>
-        <span style={{ fontSize: '11px', color: 'var(--status-critical-text)' }}>
+        <span style={{ fontSize: '12px', color: 'var(--status-critical-text)' }}>
           {status.error}
         </span>
       </div>
@@ -196,16 +196,16 @@ function UploadRow({ filename, status }: { filename: string; status: 'uploading'
         }}>
           {filename}
         </p>
-        <p style={{ fontSize: '11px', color: 'var(--muted)', margin: 0, marginTop: '0.125rem' }}>
+        <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0, marginTop: '0.125rem' }}>
           {status.summary}
         </p>
         {status.unmatched && status.unmatched.length > 0 && (
-          <p style={{ fontSize: '11px', color: 'var(--muted)', margin: 0, marginTop: '0.25rem' }}>
+          <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0, marginTop: '0.25rem' }}>
             Not found in dm+d: {status.unmatched.join('; ')}
           </p>
         )}
         {status.warnings?.map((w) => (
-          <p key={w} style={{ fontSize: '11px', color: 'var(--muted)', margin: 0, marginTop: '0.125rem' }}>{w}</p>
+          <p key={w} style={{ fontSize: '12px', color: 'var(--muted)', margin: 0, marginTop: '0.125rem' }}>{w}</p>
         ))}
       </div>
       <a

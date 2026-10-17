@@ -6,10 +6,11 @@
  * only when they link to exactly one product (see lib/pmr-match.ts); the rest are counted below.
  */
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/server';
+import { getCurrentMembership, getRequestClient } from '@/lib/session';
 import { readAll } from '@/lib/paginated-read';
 import { linkInvoiceLines, type PurchaseLine, type LineLink } from '@/lib/pmr-match';
 import { buildReport, pmrProducts, type DispensingRow, type StockRow } from '@/lib/pmr-report';
+import { Figure, shortDate } from '../ui';
 
 type SearchParams = Promise<{ months?: string; site?: string; q?: string }>;
 const SHOWN = 300;
@@ -18,12 +19,15 @@ const monthLabel = (m: string) => new Date(`${m}-01T00:00:00Z`).toLocaleDateStri
 function lastDay(m: string) { const [y, mo] = m.split('-').map(Number); return new Date(Date.UTC(y!, mo!, 0)).toISOString().slice(0, 10); }
 function chunks<T>(xs: T[], n: number): T[][] { const out: T[][] = []; for (let i = 0; i < xs.length; i += n) out.push(xs.slice(i, i + n)); return out; }
 
-type Supabase = Awaited<ReturnType<typeof createClient>>;
+type Supabase = Awaited<ReturnType<typeof getRequestClient>>;
 
 async function load(supabase: Supabase, pharmacyId: string, sp: Awaited<SearchParams>) {
-  const { data: latest, error: latestError } = await supabase.from('pmr_dispensing').select('month').eq('pharmacy_id', pharmacyId).order('month', { ascending: false }).limit(1);
+  // The latest month and the latest stock report are independent: read them together.
+  const [{ data: latest, error: latestError }, { data: snaps }] = await Promise.all([
+    supabase.from('pmr_dispensing').select('month').eq('pharmacy_id', pharmacyId).order('month', { ascending: false }).limit(1),
+    supabase.from('pmr_stock_snapshots').select('snapshot_date').eq('pharmacy_id', pharmacyId).order('snapshot_date', { ascending: false }).limit(1),
+  ]);
   if (latestError) throw new Error(latestError.message);
-  const { data: snaps } = await supabase.from('pmr_stock_snapshots').select('snapshot_date').eq('pharmacy_id', pharmacyId).order('snapshot_date', { ascending: false }).limit(1);
   const snapshot = (snaps?.[0]?.snapshot_date as string | undefined) ?? null;
   if (!latest?.length && !snapshot) return null;
 
@@ -52,8 +56,8 @@ async function load(supabase: Supabase, pharmacyId: string, sp: Awaited<SearchPa
   const lines: (PurchaseLine & { qty: number })[] = lineRows.map((l) => ({ id: l.id, description: l.description, pack_size: l.pack_size, supplier_sku: l.supplier_sku, gtin: l.gtin, supplier: (Array.isArray(l.invoices) ? l.invoices[0]?.supplier : l.invoices.supplier) ?? '', qty: l.qty_ordered }));
   const gtins = [...new Set(lines.map((l) => l.gtin ?? mappedGtin.get(`${l.supplier}|${l.supplier_sku ?? ''}`)).filter((g): g is string => !!g))];
   const gtinToKey = new Map<string, string>();
-  for (const part of chunks(gtins, 200)) {
-    const { data } = await supabase.from('dmd_packs').select('gtin,name,generic_name').in('gtin', part);
+  const packs = await Promise.all(chunks(gtins, 200).map((part) => supabase.from('dmd_packs').select('gtin,name,generic_name').in('gtin', part)));
+  for (const { data } of packs) {
     for (const d of data ?? []) gtinToKey.set(d.gtin, String(d.generic_name ?? d.name).toLowerCase().replace(/\s+/g, ' ').trim());
   }
   const links: Map<string, LineLink> = linkInvoiceLines(pmrProducts([...dispensing, ...(stock ?? [])]), lines, gtinToKey, mappedGtin);
@@ -70,10 +74,9 @@ async function load(supabase: Supabase, pharmacyId: string, sp: Awaited<SearchPa
 
 export default async function DispensingPage({ searchParams }: { searchParams: SearchParams }) {
   const sp = await searchParams;
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  const { data: memberships } = await supabase.from('pharmacy_memberships').select('pharmacy_id').eq('user_id', user?.id ?? '').limit(1);
-  const pharmacyId = memberships?.[0]?.pharmacy_id as string | undefined;
+  // The membership is already read (and cached) by the layout for this request.
+  const [supabase, membership] = await Promise.all([getRequestClient(), getCurrentMembership()]);
+  const pharmacyId = membership?.pharmacy_id;
   if (!pharmacyId) return <Message title="No pharmacy" body="Your account is not linked to a pharmacy yet." />;
 
   let data: Awaited<ReturnType<typeof load>>;
@@ -87,98 +90,92 @@ export default async function DispensingPage({ searchParams }: { searchParams: S
   return (
     <div>
       <Header />
-      <div className="card card-padded" style={{ marginBottom: '1.25rem' }}>
-        <div className="stat-grid">
-          <Stat label="Products" value={String(report.length)} />
-          <Stat label="Found in dm+d" value={report.length ? `${Math.round((100 * inDmd) / report.length)}%` : 'n/a'} />
-          <Stat label="Invoice lines linked" value={`${linked} of ${lines.length}`} />
-          <Stat label="Stock report" value={snapshot ?? 'None'} />
-        </div>
-        <p style={{ fontSize: '12px', color: 'var(--muted)', margin: '1rem 0 0' }}>
-          {monthLabel(months[0]!)} to {monthLabel(months[months.length - 1]!)}{site ? `, ${site}` : sites.length > 1 ? `, all ${sites.length} sites` : ''}.
-          {' '}Bought counts invoice lines that match one product by barcode, PIP code, or medicine, strength, form and pack size.
-          {lines.length - linked > 0 ? ` ${lines.length - linked} lines are not counted (${ambiguous} fit more than one product).` : ''}
-          {sites.length > 1 && !site ? ' Invoices are for this pharmacy only, so compare them with its own site.' : ''}
-        </p>
-      </div>
+      <section className="figures" aria-label="Summary">
+        <Figure label="Products" value={String(report.length)} line={`${monthLabel(months[0]!)} to ${monthLabel(months[months.length - 1]!)}${site ? `, ${site}` : sites.length > 1 ? `, ${sites.length} sites` : ''}`} />
+        <Figure label="Found in dm+d" value={report.length ? `${Math.round((100 * inDmd) / report.length)}%` : 'n/a'} line={`${inDmd} of ${report.length} products`} />
+        <Figure label="Invoice lines linked" value={`${linked} of ${lines.length}`} line={lines.length - linked > 0 ? `${lines.length - linked} not counted, ${ambiguous} fit more than one` : 'Every line counted'} />
+        <Figure label="Stock report" value={snapshot ? shortDate(snapshot) : 'None'} line={snapshot ? 'Latest Stock Value export' : 'Upload a Stock Value export'} />
+      </section>
 
-      <form method="get" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-        <input className="input" name="q" defaultValue={sp.q ?? ''} placeholder="Search products" style={{ maxWidth: '18rem' }} />
+      <form method="get" className="list-controls">
+        <input className="input" type="search" name="q" defaultValue={sp.q ?? ''} placeholder="Find a product" aria-label="Find a product" />
         {sites.length > 1 && (
-          <select className="input" name="site" defaultValue={site} style={{ maxWidth: '14rem' }}>
+          <select className="input" name="site" defaultValue={site} aria-label="Site">
             <option value="">All sites</option>
             {sites.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         )}
-        <select className="input" name="months" defaultValue={String(count)} style={{ maxWidth: '9rem' }}>
+        <select className="input" name="months" defaultValue={String(count)} aria-label="Months">
           {[1, 2, 3, 6, 12].map((n) => <option key={n} value={n}>{n === 1 ? 'Last month' : `Last ${n} months`}</option>)}
         </select>
-        <button className="btn btn-secondary btn-sm" type="submit">Show</button>
+        <button className="btn btn-secondary" type="submit">Show</button>
       </form>
 
-      <div className="card" style={{ overflowX: 'auto' }}>
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Product</th>
-              {months.map((m) => <th key={m} className="num">{monthLabel(m)}</th>)}
-              <th className="num">Dispensed</th>
-              <th className="num">Bought</th>
-              <th className="num">On hand</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((p) => (
-              <tr key={p.key}>
-                <td>
-                  {p.name}
-                  {!p.inDmd && <span className="badge badge-neutral" style={{ marginLeft: '0.5rem' }}>Not in dm+d</span>}
-                </td>
-                {months.map((m) => <td key={m} className="num tabular-nums">{p.dispensed[m] ? fmt(p.dispensed[m]!) : ''}</td>)}
-                <td className="num tabular-nums">{fmt(p.dispensedTotal)}</td>
-                <td className="num tabular-nums">{p.purchasedLines ? fmt(p.purchased) : ''}</td>
-                <td className="num tabular-nums">{p.onHand === null ? '' : fmt(p.onHand)}{p.onOrder ? ` (+${fmt(p.onOrder)} on order)` : ''}</td>
+      <div className="card" style={{ overflow: 'hidden' }}>
+        <div className="table-scroll">
+          <table className="table rows">
+            <thead>
+              <tr>
+                <th>Product</th>
+                {months.map((m) => <th key={m} className="num">{monthLabel(m)}</th>)}
+                <th className="num">Dispensed</th>
+                <th className="num">Bought</th>
+                <th className="num">On hand</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {shown.map((p) => (
+                <tr key={p.key}>
+                  <td className="c-title">
+                    {p.name}
+                    {!p.inDmd && <span className="status status-neutral" style={{ marginLeft: '0.6rem', fontWeight: 400 }}>Not in dm+d</span>}
+                  </td>
+                  {months.map((m) => <td key={m} className="num tabular-nums c-hide">{p.dispensed[m] ? fmt(p.dispensed[m]!) : ''}</td>)}
+                  <td className="num tabular-nums c-value">{fmt(p.dispensedTotal)}<span className="c-phone text-faint" style={{ fontWeight: 400 }}> dispensed</span></td>
+                  <td className="num tabular-nums c-meta"><span className="c-phone">Bought </span>{p.purchasedLines ? fmt(p.purchased) : '–'}</td>
+                  <td className="num tabular-nums c-meta"><span className="c-phone">On hand </span>{p.onHand === null ? '–' : fmt(p.onHand)}{p.onOrder ? ` (+${fmt(p.onOrder)} on order)` : ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <details className="method">
+          <summary>How bought is counted</summary>
+          <p>Bought counts invoice lines that match one product by barcode, PIP code, or medicine, strength, form and pack size.{sites.length > 1 && !site ? ' Invoices are for this pharmacy only, so compare them with its own site.' : ''}</p>
+        </details>
       </div>
-      {total > shown.length && <p style={{ fontSize: '12px', color: 'var(--muted)' }}>Showing {shown.length} of {total} products, most dispensed first. Search to narrow the list.</p>}
+      {total > shown.length && <p className="text-faint" style={{ fontSize: 13 }}>Showing {shown.length} of {total} products, most dispensed first. Search to narrow the list.</p>}
     </div>
   );
 }
 
 function Header() {
   return (
-    <div className="page-header" style={{ marginBottom: '1.25rem' }}>
+    <div className="page-header">
       <div>
         <h1 className="page-header-title">Dispensing</h1>
-        <p className="page-header-subtitle">Packs dispensed by month from your dispensing system, packs bought on invoices over the same months, and stock on hand.</p>
+        <p className="page-header-subtitle">Packs dispensed each month from your dispensing system, beside packs bought on invoices and stock on hand.</p>
       </div>
     </div>
   );
-}
-function Stat({ label, value }: { label: string; value: string }) {
-  return <div className="stat-block"><p className="stat-block-label">{label}</p><p className="stat-block-value">{value}</p></div>;
 }
 function Empty() {
   return (
     <div>
       <Header />
-      <div className="card" style={{ textAlign: 'center', padding: '3rem 1rem' }}>
-        <h2 style={{ fontSize: '14px', fontWeight: 600, margin: '0 0 0.375rem' }}>No dispensing data yet</h2>
-        <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0, lineHeight: 1.5 }}>
-          Export Product Usage and Stock Value from Positive Solutions Pharmacy Manager and drop the files on the <Link href="/upload" style={{ color: 'var(--brand)' }}>upload page</Link>.
-        </p>
+      <div className="card empty-card">
+        <h2>No dispensing data yet</h2>
+        <p>Export Product Usage and Stock Value from Positive Solutions Pharmacy Manager and add the files on the upload page.</p>
+        <Link href="/upload" className="btn btn-primary">Upload exports</Link>
       </div>
     </div>
   );
 }
 function Message({ title, body }: { title: string; body: string }) {
   return (
-    <div style={{ padding: '1rem', borderRadius: '0.5rem', background: 'var(--status-critical-bg)', border: '1px solid var(--status-critical-border)', color: 'var(--status-critical-text)' }}>
-      <p style={{ fontSize: '13px', fontWeight: 500, margin: 0 }}>{title}</p>
-      <p style={{ fontSize: '12px', margin: '0.25rem 0 0' }}>{body}</p>
+    <div className="card notice" role="alert">
+      <strong>{title}</strong>
+      <p>{body}</p>
     </div>
   );
 }

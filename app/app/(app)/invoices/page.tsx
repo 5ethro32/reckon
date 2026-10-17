@@ -13,7 +13,7 @@
 import Link from 'next/link';
 import { getRequestClient } from '@/lib/session';
 import InvoicesList, { type InvoiceRow } from './invoices-list';
-import { INVOICE_PAGE_SIZE, defaultSortDir, type SortKey } from './list-params';
+import { INVOICE_PAGE_SIZE, STATUS_FILTERS, defaultSortDir, type SortKey, type StatusFilter } from './list-params';
 
 const sortColumns: Record<SortKey, string> = {
   date: 'invoice_date', supplier: 'supplier', invoice: 'invoice_number', total: 'gross_total', status: 'status_rank',
@@ -29,12 +29,17 @@ export default async function InvoicesPage({ searchParams }: { searchParams: Sea
   const sort: SortKey = Object.hasOwn(sortColumns, param('sort')) ? param('sort') as SortKey : 'date';
   const dir = param('dir') === 'asc' || param('dir') === 'desc' ? param('dir') as 'asc' | 'desc' : defaultSortDir(sort);
   const page = Math.max(1, Math.floor(Number(param('page'))) || 1);
+  const status: StatusFilter = (STATUS_FILTERS as readonly string[]).includes(param('status')) ? param('status') as StatusFilter : 'all';
 
   const supabase = await getRequestClient();
   let list = supabase
     .from('invoice_receipt_summary')
-    .select('id,supplier,invoice_number,invoice_date,gross_total,line_count,full_count', { count: 'exact' });
+    .select('id,supplier,invoice_number,invoice_date,gross_total,line_count,full_count,pending_count,issue_count', { count: 'exact' });
   if (supplier !== 'all') list = list.eq('supplier', supplier);
+  // Same meaning as Home: still to check = lines not yet recorded, or no lines read.
+  if (status === 'open') list = list.or('pending_count.gt.0,line_count.eq.0');
+  if (status === 'issues') list = list.gt('issue_count', 0);
+  if (status === 'done') list = list.eq('status_rank', 2);
   // search_text is lower-case; escape LIKE wildcards so they match literally.
   if (q) list = list.ilike('search_text', `%${q.toLowerCase().replace(/[\\%_]/g, m => '\\' + m)}%`);
   list = list.order(sortColumns[sort], { ascending: dir === 'asc' });
@@ -60,6 +65,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams: Sea
     id: inv.id, supplier: inv.supplier, invoice_number: inv.invoice_number,
     invoice_date: inv.invoice_date, gross_total: Number(inv.gross_total),
     line_count: inv.line_count, full_count: inv.full_count, exception_count: inv.line_count - inv.full_count,
+    pending_count: inv.pending_count, issue_count: inv.issue_count,
   }));
   const matchCount = pastEnd ? 0 : result.count ?? rows.length;
 
@@ -67,12 +73,10 @@ export default async function InvoicesPage({ searchParams }: { searchParams: Sea
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-header-title">Invoices &amp; checks</h1>
-          <p className="page-header-subtitle">
-            {allCount} invoice{allCount === 1 ? '' : 's'}
-          </p>
+          <h1 className="page-header-title">Invoices</h1>
+          <p className="page-header-subtitle">Every invoice, and how far its delivery has been checked.</p>
         </div>
-        <Link href="/upload" className="btn btn-secondary">Upload PDFs</Link>
+        <Link href="/upload" className="btn btn-secondary">Upload invoices</Link>
       </div>
 
       <InvoicesList
@@ -80,7 +84,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams: Sea
         suppliers={suppliers.map(s => s.supplier)}
         matchCount={matchCount}
         allCount={allCount}
-        q={q} supplier={supplier} sort={sort} dir={dir} page={page}
+        q={q} supplier={supplier} status={status} sort={sort} dir={dir} page={page}
       />
     </div>
   );
@@ -91,38 +95,14 @@ function EmptyState() {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-header-title">Invoices &amp; checks</h1>
-          <p className="page-header-subtitle">Upload an invoice to start reconciling</p>
+          <h1 className="page-header-title">Invoices</h1>
+          <p className="page-header-subtitle">Upload an invoice to start checking deliveries.</p>
         </div>
       </div>
-      <div style={{
-        textAlign: 'center',
-        padding: '4rem 1.5rem',
-        border: '1.5px dashed var(--border-subtle)',
-        borderRadius: '0.75rem',
-        background: 'var(--card-bg)',
-      }}>
-        <svg
-          width="32"
-          height="32"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="var(--muted-light)"
-          strokeWidth="1.5"
-          style={{ marginBottom: '0.875rem' }}
-          aria-hidden
-        >
-          <path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="M14 3v6h6" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-        <h2 style={{ fontSize: '15px', fontWeight: 600, margin: 0, marginBottom: '0.375rem' }}>
-          No invoices yet
-        </h2>
-        <p style={{ fontSize: '12px', color: 'var(--muted)', margin: '0 auto 1.5rem', maxWidth: '24rem', lineHeight: 1.5 }}>
-          Upload a wholesaler invoice PDF and Reckon will pull out every
-          line so you can flag what didn’t arrive or arrived broken.
-        </p>
-        <Link href="/upload" className="btn btn-primary">Upload PDFs</Link>
+      <div className="card empty-card">
+        <h2>No invoices yet</h2>
+        <p>Upload a wholesaler invoice and Reckon reads every line, so you can mark what arrived short, damaged or not at all.</p>
+        <Link href="/upload" className="btn btn-primary">Upload invoices</Link>
       </div>
     </div>
   );
@@ -130,15 +110,9 @@ function EmptyState() {
 
 function ErrorState({ message }: { message: string }) {
   return (
-    <div style={{
-      padding: '1rem 1.25rem',
-      borderRadius: '0.5rem',
-      background: 'var(--status-critical-bg)',
-      border: '1px solid var(--status-critical-border)',
-      color: 'var(--status-critical-text)',
-    }}>
-      <p style={{ fontSize: '13px', fontWeight: 500, margin: 0 }}>Something went wrong</p>
-      <p style={{ fontSize: '12px', margin: 0, marginTop: '0.25rem' }}>{message}</p>
+    <div className="card notice notice-bad" role="alert">
+      <strong>Invoices did not load</strong>
+      <p>{message}</p>
     </div>
   );
 }
