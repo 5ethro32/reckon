@@ -15,7 +15,8 @@ import { Figure, shortDate } from '../ui';
 type SearchParams = Promise<{ months?: string; site?: string; q?: string }>;
 const SHOWN = 300;
 const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
-const monthLabel = (m: string) => new Date(`${m}-01T00:00:00Z`).toLocaleDateString('en-GB', { month: 'short', year: '2-digit', timeZone: 'UTC' });
+// "Sep 26": three-letter months, never "Sept".
+const monthLabel = (m: string) => `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(m.slice(5, 7)) - 1]} ${m.slice(2, 4)}`;
 function lastDay(m: string) { const [y, mo] = m.split('-').map(Number); return new Date(Date.UTC(y!, mo!, 0)).toISOString().slice(0, 10); }
 function chunks<T>(xs: T[], n: number): T[][] { const out: T[][] = []; for (let i = 0; i < xs.length; i += n) out.push(xs.slice(i, i + n)); return out; }
 
@@ -93,8 +94,8 @@ export default async function DispensingPage({ searchParams }: { searchParams: S
       <section className="figures" aria-label="Summary">
         <Figure label="Products" value={String(report.length)} line={`${monthLabel(months[0]!)} to ${monthLabel(months[months.length - 1]!)}${site ? `, ${site}` : sites.length > 1 ? `, ${sites.length} sites` : ''}`} />
         <Figure label="Found in dm+d" value={report.length ? `${Math.round((100 * inDmd) / report.length)}%` : 'n/a'} line={`${inDmd} of ${report.length} products`} />
-        <Figure label="Invoice lines linked" value={`${linked} of ${lines.length}`} line={lines.length - linked > 0 ? `${lines.length - linked} not counted, ${ambiguous} fit more than one` : 'Every line counted'} />
-        <Figure label="Stock report" value={snapshot ? shortDate(snapshot) : 'None'} line={snapshot ? 'Latest Stock Value export' : 'Upload a Stock Value export'} />
+        <Figure label="Invoice lines linked" value={`${linked} of ${lines.length}`} line={lines.length - linked > 0 ? `${lines.length - linked} not counted` : 'Every line counted'} />
+        <Figure label="Stock report" value={snapshot ? shortDate(snapshot) : 'None'} line={snapshot ? 'Latest export' : 'Upload a Stock Value export'} />
       </section>
 
       <form method="get" className="list-controls">
@@ -141,7 +142,7 @@ export default async function DispensingPage({ searchParams }: { searchParams: S
         </div>
         <details className="method">
           <summary>How bought is counted</summary>
-          <p>Bought counts invoice lines that match one product by barcode, PIP code, or medicine, strength, form and pack size.{sites.length > 1 && !site ? ' Invoices are for this pharmacy only, so compare them with its own site.' : ''}</p>
+          <p>Bought counts invoice lines that match one product by barcode, PIP code, or medicine, strength, form and pack size.{lines.length - linked > 0 ? ` ${lines.length - linked} lines are not counted (${ambiguous} fit more than one product).` : ''}{sites.length > 1 && !site ? ' Invoices are for this pharmacy only, so compare them with its own site.' : ''}</p>
         </details>
       </div>
       {total > shown.length && <p className="text-faint" style={{ fontSize: 13 }}>Showing {shown.length} of {total} products, most dispensed first. Search to narrow the list.</p>}

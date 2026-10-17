@@ -34,7 +34,7 @@ export default async function MarginPage({ searchParams }: { searchParams: Promi
     <section className="figures" aria-label="Period totals">
       <Figure label="Purchase margin" value={money(t.margin)} line={`${pct(t.marginPct)} on ${t.priced} priced lines`} />
       <Figure label="Bought at a loss" value={money(t.loss)} line={`${t.lossLines} line${t.lossLines === 1 ? '' : 's'} above the tariff`} />
-      <Figure label="Above best price" value={money(t.leakage)} line="Against the lowest price you paid" />
+      <Figure label="Above best price" value={money(t.leakage)} line="Over the lowest you paid" />
       <Figure label="Not matched" value={String(t.unmatched)} line={`of ${t.lines} lines, left out`} />
     </section>
 

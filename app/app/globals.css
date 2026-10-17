@@ -186,12 +186,12 @@ a:hover {
   text-decoration: none;
 }
 /* Links inside running text are underlined, so they read as links. */
-:is(p, li) > a:not(.btn):not(.quiet-link) {
+:is(p, li) > a:not([class]) {
   text-decoration: underline;
   text-decoration-color: var(--hairline-strong);
   text-underline-offset: 3px;
 }
-:is(p, li) > a:not(.btn):not(.quiet-link):hover {
+:is(p, li) > a:not([class]):hover {
   text-decoration-color: currentColor;
 }
 
@@ -1838,14 +1838,28 @@ a.figure:hover {
   color: var(--ink-faint);
   padding: 2.5rem 1rem !important;
 }
+/* A notice: a dot in its meaning colour before the heading, no stripes. */
 .notice {
   padding: 1rem 1.125rem;
-  border-left: 3px solid var(--bad);
+  --dot: var(--bad);
 }
 .notice strong {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   font-size: 14px;
   font-weight: 600;
+}
+.notice strong::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--dot);
+  flex-shrink: 0;
+}
+.notice p {
+  padding-left: calc(7px + 0.5rem);
 }
 .notice p {
   margin: 0.25rem 0 0;
@@ -1853,10 +1867,10 @@ a.figure:hover {
   color: var(--ink-soft);
 }
 .notice-warn {
-  border-left-color: var(--warn);
+  --dot: var(--warn);
 }
 .notice-info {
-  border-left-color: var(--hairline-strong);
+  --dot: var(--ink-muted);
 }
 .pager {
   display: flex;
@@ -2009,11 +2023,17 @@ input[type="checkbox"] {
 @media (max-width: 768px) {
   .period-filter {
     display: grid;
-    grid-template-columns: 1fr 1fr auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .period-filter label {
+    min-width: 0;
   }
   .period-filter .input {
     width: 100%;
     min-width: 0;
+  }
+  .period-filter .btn {
+    grid-column: 1 / -1;
   }
 }
 
@@ -2077,4 +2097,19 @@ details.method ul {
     flex: 1 1 0;
     min-width: 0;
   }
+}
+
+/* The sheet takes focus when it opens (for the keyboard); no ring around it. */
+.sheet-panel:focus {
+  outline: none;
+}
+/* Dark: the sheet lifts off the black page as iOS sheets do. */
+[data-theme="dark"] .sheet-panel {
+  background: var(--paper-raised);
+}
+[data-theme="dark"] .sheet-group {
+  background: var(--wash-2);
+}
+[data-theme="dark"] .sheet-backdrop {
+  background: rgba(0, 0, 0, 0.6);
 }
