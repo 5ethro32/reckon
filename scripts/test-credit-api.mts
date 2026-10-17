@@ -2,6 +2,7 @@ import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import ts from 'typescript';
 import * as creditStatus from '../app/lib/credit-status.ts';
+import * as userLib from '../app/lib/supabase/user.ts';
 // Execute the actual handler with only HTTP/database boundaries substituted.
 const source=readFileSync('app/app/api/credits/[id]/route.ts','utf8');
 const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
@@ -9,7 +10,7 @@ let signedIn=true;
 let existing:Record<string,unknown>={id:'claim',status:'draft',external_credit_note_number:null};
 let updates:Record<string,unknown>[]=[];
 let changedRows:unknown[]=[{id:'claim'}];
-const db={auth:{getUser:async()=>({data:{user:signedIn?{id:'user'}:null}})},from:()=>{
+const db={auth:{getClaims:async()=>({data:signedIn?{claims:{sub:'user'}}:null,error:null})},from:()=>{
  const chain:Record<string,unknown>={};
  chain.select=()=>chain;chain.eq=()=>chain;chain.maybeSingle=async()=>({data:existing,error:null});
  chain.update=(value:Record<string,unknown>)=>{updates.push(value);const filter:Record<string,unknown>={eq:()=>filter,select:()=>filter,then:(resolve:(v:unknown)=>unknown)=>resolve({data:changedRows,error:null})};return filter;};
@@ -19,6 +20,7 @@ const exported:{exports:Record<string,any>}={exports:{}};
 const requireMock=(name:string)=>{
  if(name==='next/server')return{NextResponse:{json:(body:unknown,init?:{status?:number})=>new Response(JSON.stringify(body),{status:init?.status??200})}};
  if(name==='@/lib/supabase/server')return{createClient:async()=>db};
+ if(name==='@/lib/supabase/user')return (userLib as {default?:unknown}).default ?? userLib;
  if(name==='@/lib/credit-status')return (creditStatus as {default?:unknown}).default ?? creditStatus;
  throw Error(`Unexpected import ${name}`);
 };

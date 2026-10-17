@@ -4,12 +4,16 @@
  * Deliveries list — client component with filter bar + sortable headers.
  *
  * Mirrors the structure of statements-list.tsx so the two list pages
- * have identical interaction patterns.
+ * have identical interaction patterns. Search, supplier, sort and page live
+ * in the URL and the server filters and pages the invoices, so the browser
+ * only ever holds one page.
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
 import { FilterBar, type SupplierOption } from '../filter-bar';
+import { INVOICE_PAGE_SIZE, defaultSortDir, type SortDir, type SortKey } from './list-params';
 
 const supplierLabels: Record<string, string> = {
   aah: 'AAH', aver: 'Aver', phoenix: 'Phoenix',
@@ -27,76 +31,54 @@ export type InvoiceRow = {
   exception_count: number;
 };
 
-type SortKey = 'date' | 'supplier' | 'invoice' | 'total' | 'status';
-type SortDir = 'asc' | 'desc';
+type ListState = { q: string; supplier: string; sort: SortKey; dir: SortDir; page: number };
 
-export default function InvoicesList({ rows }: { rows: InvoiceRow[] }) {
-  const [query, setQuery] = useState('');
-  const [supplier, setSupplier] = useState<string>('all');
-  const [sortKey, setSortKey] = useState<SortKey>('date');
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
+function listHref(pathname: string, s: ListState): string {
+  const params = new URLSearchParams();
+  if (s.q.trim()) params.set('q', s.q.trim());
+  if (s.supplier !== 'all') params.set('supplier', s.supplier);
+  if (s.sort !== 'date') params.set('sort', s.sort);
+  if (s.dir !== defaultSortDir(s.sort)) params.set('dir', s.dir);
+  if (s.page > 1) params.set('page', String(s.page));
+  const qs = params.toString();
+  return qs ? `${pathname}?${qs}` : pathname;
+}
 
-  const supplierOptions: SupplierOption[] = useMemo(() => {
-    const set = new Set(rows.map(r => r.supplier));
-    return Array.from(set).map(s => ({
-      value: s,
-      label: supplierLabels[s] ?? s,
-    }));
-  }, [rows]);
+export default function InvoicesList({
+  rows, suppliers, matchCount, allCount, ...state
+}: ListState & { rows: InvoiceRow[]; suppliers: string[]; matchCount: number; allCount: number }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [pending, startTransition] = useTransition();
+  const [query, setQuery] = useState(state.q);
+  const lastSent = useRef(state.q);
+  const { supplier, sort: sortKey, dir: sortDir, page } = state;
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return rows.filter(r => {
-      if (supplier !== 'all' && r.supplier !== supplier) return false;
-      if (!q) return true;
-      const date = new Date(r.invoice_date).toLocaleDateString('en-GB');
-      return (
-        r.invoice_number.toLowerCase().includes(q)
-        || (supplierLabels[r.supplier] ?? r.supplier).toLowerCase().includes(q)
-        || date.toLowerCase().includes(q)
-        || String(r.gross_total).includes(q)
-      );
-    });
-  }, [rows, query, supplier]);
+  function go(next: Partial<ListState>) {
+    const merged = { ...state, q: query, page: 1, ...next };
+    lastSent.current = merged.q;
+    startTransition(() => router.replace(listHref(pathname, merged), { scroll: false }));
+  }
 
-  const sorted = useMemo(() => {
-    const out = [...filtered];
-    out.sort((a, b) => {
-      let cmp = 0;
-      switch (sortKey) {
-        case 'date':
-          cmp = a.invoice_date.localeCompare(b.invoice_date);
-          break;
-        case 'supplier':
-          cmp = (supplierLabels[a.supplier] ?? a.supplier).localeCompare(
-            supplierLabels[b.supplier] ?? b.supplier
-          );
-          break;
-        case 'invoice':
-          cmp = a.invoice_number.localeCompare(b.invoice_number, undefined, { numeric: true });
-          break;
-        case 'total':
-          cmp = a.gross_total - b.gross_total;
-          break;
-        case 'status':
-          // Pending (0) < In progress (mid) < All received (full). Lower=more pending.
-          cmp = (a.line_count === 0 ? 0 : a.exception_count > 0 ? 1 : 2)
-              - (b.line_count === 0 ? 0 : b.exception_count > 0 ? 1 : 2);
-          break;
-      }
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
-    return out;
-  }, [filtered, sortKey, sortDir]);
+  // Debounce typing so each keystroke does not fetch a page.
+  useEffect(() => {
+    if (query === lastSent.current) return;
+    const t = setTimeout(() => go({ q: query }), 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
+  const supplierOptions: SupplierOption[] = suppliers.map(s => ({
+    value: s,
+    label: supplierLabels[s] ?? s,
+  }));
 
   function clickHeader(key: SortKey) {
-    if (sortKey === key) {
-      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortKey(key);
-      setSortDir(key === 'date' || key === 'total' ? 'desc' : 'asc');
-    }
+    if (sortKey === key) go({ dir: sortDir === 'asc' ? 'desc' : 'asc' });
+    else go({ sort: key, dir: defaultSortDir(key) });
   }
+
+  const pageCount = Math.max(1, Math.ceil(matchCount / INVOICE_PAGE_SIZE));
 
   return (
     <>
@@ -104,14 +86,14 @@ export default function InvoicesList({ rows }: { rows: InvoiceRow[] }) {
         query={query}
         onQueryChange={setQuery}
         supplier={supplier}
-        onSupplierChange={setSupplier}
+        onSupplierChange={v => go({ supplier: v })}
         supplierOptions={supplierOptions}
         placeholder="Search by invoice number, date, or amount"
-        resultCount={sorted.length}
-        totalCount={rows.length}
+        resultCount={matchCount}
+        totalCount={allCount}
       />
 
-      <div className="card" style={{ overflow: 'hidden' }}>
+      <div className="card" style={{ overflow: 'hidden', opacity: pending ? 0.6 : 1 }} aria-busy={pending}>
         <div className="table-scroll">
         <table className="table">
           <thead>
@@ -124,13 +106,13 @@ export default function InvoicesList({ rows }: { rows: InvoiceRow[] }) {
             </tr>
           </thead>
           <tbody>
-            {sorted.length === 0 ? (
+            {rows.length === 0 ? (
               <tr>
                 <td colSpan={5} style={{ textAlign: 'center', color: 'var(--muted)', padding: '2.5rem 1rem', fontSize: '12px' }}>
                   No invoices match your filters.
                 </td>
               </tr>
-            ) : sorted.map(inv => {
+            ) : rows.map(inv => {
               const allFull = inv.line_count > 0 && inv.exception_count === 0;
               const label = inv.line_count === 0
                 ? 'Pending'
@@ -173,6 +155,14 @@ export default function InvoicesList({ rows }: { rows: InvoiceRow[] }) {
         </table>
         </div>
       </div>
+
+      {pageCount > 1 && (
+        <nav aria-label="Invoice pages" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.875rem', fontSize: '12px', color: 'var(--muted)' }}>
+          <span>Page {page} of {pageCount}</span>
+          {page > 1 && <Link className="btn btn-secondary btn-sm" href={listHref(pathname, { ...state, page: page - 1 })}>Previous</Link>}
+          {page < pageCount && <Link className="btn btn-secondary btn-sm" href={listHref(pathname, { ...state, page: page + 1 })}>Next</Link>}
+        </nav>
+      )}
     </>
   );
 }

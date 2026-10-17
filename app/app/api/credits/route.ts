@@ -18,6 +18,7 @@ import { creditShare, creditValue } from '@/lib/credit-amount';
 
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getSignedInUser } from '@/lib/supabase/user';
 import { buildCreditEmail, type CreditEmailLine } from '@/lib/email/credit-template';
 import { buildMailto } from '@/lib/credits/build-mailto';
 
@@ -34,9 +35,7 @@ const DEFAULT_CREDIT_EMAILS: Record<string, string> = {
 };
 
 async function resolvePharmacy(supabase: Awaited<ReturnType<typeof createClient>>) {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSignedInUser(supabase);
   if (!user) return { error: NextResponse.json({ error: 'Not signed in' }, { status: 401 }) } as const;
 
   const { data: memberships } = await supabase

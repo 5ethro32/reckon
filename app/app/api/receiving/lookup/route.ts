@@ -1,12 +1,13 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getSignedInUser } from '@/lib/supabase/user';
 import { parsePackBarcode } from '@/lib/receiving';
 import { matchScan } from '@/lib/scan-match';
 
 /** Suggest the invoice line for a scanned pack: the invoice's own GTIN, this pharmacy's mapping, then NHS dm+d. */
 export async function POST(request: NextRequest) {
   const db = await createClient();
-  if (!(await db.auth.getUser()).data.user) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
+  if (!(await getSignedInUser(db))) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
   try {
     const body = await request.json();
     if (typeof body?.invoiceId !== 'string') throw Error('invoiceId is required.');

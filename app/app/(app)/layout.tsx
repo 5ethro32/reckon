@@ -14,7 +14,7 @@
  */
 
 import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { getCurrentMembership, getCurrentUser } from '@/lib/session';
 import AppShell from './app-shell';
 import OnboardingModal from './onboarding-modal';
 
@@ -23,26 +23,14 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  // Both are request-cached: pages that also need them reuse these lookups.
+  const user = await getCurrentUser();
   if (!user) redirect('/');
 
-  const { data: memberships } = await supabase
-    .from('pharmacy_memberships')
-    .select('pharmacy_id, role, onboarded_at, pharmacies(id, name)')
-    .eq('user_id', user.id)
-    .limit(1);
+  const membership = await getCurrentMembership();
+  if (!membership) redirect('/no-access');
 
-  if (!memberships || memberships.length === 0) {
-    redirect('/no-access');
-  }
-
-  const membership = memberships[0]!;
-
-  const pharmacyData = membership.pharmacies as
-    | { id: string; name: string }
-    | { id: string; name: string }[];
-  const pharmacy = Array.isArray(pharmacyData) ? pharmacyData[0]! : pharmacyData;
+  const pharmacy = membership.pharmacy;
 
   if (!membership.onboarded_at) {
     return (

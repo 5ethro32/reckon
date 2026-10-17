@@ -1,10 +1,11 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getSignedInUser } from '@/lib/supabase/user';
 import { parsePackBarcode } from '@/lib/receiving';
 
 export async function POST(request: NextRequest) {
   const db = await createClient();
-  if (!(await db.auth.getUser()).data.user) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
+  if (!(await getSignedInUser(db))) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
   try {
     const body = await request.json();
     const pack = parsePackBarcode(body.gtin ?? '');
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   const db=await createClient();
-  if(!(await db.auth.getUser()).data.user)return NextResponse.json({error:'Not signed in'},{status:401});
+  if(!(await getSignedInUser(db)))return NextResponse.json({error:'Not signed in'},{status:401});
   const lineId=request.nextUrl.searchParams.get('lineId');
   if(!lineId)return NextResponse.json({error:'Choose an invoice product'},{status:400});
   const {data,error}=await db.from('receipt_events').select('id,gtin,quantity,batch,expiry,serial,recorded_at,recorded_by').eq('invoice_line_id',lineId).order('recorded_at',{ascending:false}).limit(100);

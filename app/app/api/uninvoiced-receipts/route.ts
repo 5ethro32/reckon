@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getSignedInUser } from '@/lib/supabase/user';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export async function POST(request: Request) {
  const db=await createClient();
- const {data:{user}}=await db.auth.getUser();
+ const user=await getSignedInUser(db);
  if(!user) return NextResponse.json({error:'Sign in first'},{status:401});
  let body;
  try {body=await request.json();} catch {return NextResponse.json({error:'Invalid request'},{status:400});}

@@ -1,10 +1,11 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getSignedInUser } from '@/lib/supabase/user';
 import { parseCatalogCsv } from '@/lib/barcode-catalog';
 import { normalizeGtin } from '@/lib/receiving';
 export async function POST(request: NextRequest) {
  const db=await createClient();
- if(!(await db.auth.getUser()).data.user)return NextResponse.json({error:'Not signed in'},{status:401});
+ if(!(await getSignedInUser(db)))return NextResponse.json({error:'Not signed in'},{status:401});
  try {
   const text=await request.text();if(text.length>600000)throw Error('Catalog is too large.');
   const body=JSON.parse(text);
@@ -19,7 +20,7 @@ export async function POST(request: NextRequest) {
 /** Owners and admins remove a wrong verified mapping; the next scan must be confirmed again. */
 export async function DELETE(request: NextRequest) {
  const db=await createClient();
- if(!(await db.auth.getUser()).data.user)return NextResponse.json({error:'Not signed in'},{status:401});
+ if(!(await getSignedInUser(db)))return NextResponse.json({error:'Not signed in'},{status:401});
  try {
   const body=await request.json();
   if(typeof body?.lineId!=='string'||typeof body?.gtin!=='string')throw Error('lineId and gtin are required.');

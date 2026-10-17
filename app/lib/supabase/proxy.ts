@@ -50,7 +50,12 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  const { data: { user } } = await supabase.auth.getUser();
+  // getClaims() still refreshes a session that is about to expire (new
+  // cookies go out via setAll), then verifies the JWT locally when the
+  // project uses an asymmetric signing key: most requests, RSC prefetches
+  // included, make no Auth round trip at all.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const user = claimsData?.claims?.sub ?? null;
 
   // Public routes that don't require auth. '/' IS the login page in this app.
   // /privacy and /terms are public so visitors can read them before signing

@@ -14,7 +14,9 @@ export async function proxy(request: NextRequest) {
   return await updateSession(request);
 }
 
-export const proxyConfig = {
+// Next reads `config`; under any other name the matcher is ignored and the
+// proxy runs for every static asset too.
+export const config = {
   matcher: [
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
