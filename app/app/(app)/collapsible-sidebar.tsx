@@ -37,6 +37,7 @@ const PRIMARY_LINKS: NavLink[] = [
   { id: 'statements', label: 'Statements', href: '/statements', matchPrefix: '/statements' },
   { id: 'credits',    label: 'Credits',    href: '/credits' },
   { id: 'margin',     label: 'Margin',     href: '/margin' },
+  { id: 'dispensing', label: 'Dispensing', href: '/dispensing' },
   { id: 'upload',     label: 'Upload',     href: '/upload' },
 ];
 
@@ -557,6 +558,7 @@ function NavIcon({ id, active }: { id: string; active: boolean }) {
         </svg>
       );
     case 'margin':
+    case 'dispensing':
       return (
         <svg style={cls} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke={stroke}>
           <path

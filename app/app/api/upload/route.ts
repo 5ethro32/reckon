@@ -2,7 +2,7 @@
  * POST /api/upload
  *
  * Receives a PDF, runs @reckon/parser, persists to Supabase under the
- * caller's pharmacy.
+ * caller's pharmacy. An xlsx is read as a dispensing-system (PMR) export instead.
  *
  * Returns:
  *   { ok: true, documentId, kind, supplier, summary }
@@ -16,6 +16,8 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { parsePdf } from '@reckon/parser';
 import type { ParsedInvoice, ParsedStatement } from '@reckon/parser';
+import { looksLikeXlsx } from '@reckon/parser/pmr';
+import { importPmr } from '@/lib/pmr-import';
 
 // Use Node.js runtime (default) — pdf-parse needs Node APIs
 export const runtime = 'nodejs';
@@ -48,6 +50,13 @@ export async function POST(request: NextRequest) {
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
+
+  // Dispensing-system exports (Positive Solutions xlsx) have their own tables.
+  if (looksLikeXlsx(buffer)) {
+    const pmr = await importPmr(supabase, pharmacyId, buffer, file.name);
+    if (!pmr.ok) return NextResponse.json({ ok: false, error: pmr.error }, { status: pmr.status });
+    return NextResponse.json({ ok: true, documentId: pmr.importId, kind: 'pmr', supplier: 'psl', summary: pmr.summary, unmatched: pmr.unmatched, warnings: pmr.warnings });
+  }
 
   // Parse
   const result = await parsePdf(buffer);

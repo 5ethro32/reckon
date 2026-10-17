@@ -14,7 +14,7 @@ export default async function UploadPage({
     ? 'Drop a wholesaler invoice PDF. We’ll match it against your statements.'
     : type === 'statement'
     ? 'Drop a wholesaler statement PDF. We’ll reconcile it against your delivered invoices.'
-    : 'Drop a wholesaler invoice or statement PDF. We’ll auto-detect the supplier and document type.';
+    : 'Drop a wholesaler invoice or statement PDF, or a Positive Solutions Product Usage, Stock Value or Items Processed export. We’ll auto-detect the supplier and document type.';
 
   return (
     <div style={{ maxWidth: '42rem', margin: '0 auto' }}>

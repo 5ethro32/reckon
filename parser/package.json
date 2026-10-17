@@ -1,7 +1,7 @@
 {
   "name": "@reckon/parser",
   "version": "0.1.0",
-  "description": "PDF invoice and statement parsers for UK pharmacy wholesalers",
+  "description": "PDF invoice and statement parsers for UK pharmacy wholesalers, and pharmacy dispensing system exports",
   "type": "module",
   "private": true,
   "main": "./src/index.ts",
@@ -14,6 +14,10 @@
     "./types": {
       "types": "./src/types/index.ts",
       "default": "./src/types/index.ts"
+    },
+    "./pmr": {
+      "types": "./src/pmr/index.ts",
+      "default": "./src/pmr/index.ts"
     }
   },
   "scripts": {
