@@ -8,6 +8,7 @@
  */
 
 import { useState } from 'react';
+import { SupplierTag } from '../ui';
 
 export type SupplierContact = {
   id: string;
@@ -70,33 +71,14 @@ export default function SupplierForm({ contact }: { contact: SupplierContact }) 
   }
 
   return (
-    <div className="card" style={{ padding: '1.25rem 1.25rem 1rem', marginBottom: '1rem' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: '1rem',
-        }}
-      >
-        <div>
-          <p className="section-label" style={{ marginBottom: '0.125rem' }}>
-            Supplier
-          </p>
-          <h2 style={{ fontSize: '15px', fontWeight: 600, margin: 0 }}>
-            {supplierLabels[contact.supplier] ?? contact.supplier}
-          </h2>
-        </div>
+    <div className="card card-padded" style={{ marginBottom: '0.875rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', marginBottom: '1rem' }}>
+        <h3 style={{ fontSize: '15px', fontWeight: 600, margin: 0 }}>
+          <SupplierTag code={contact.supplier}>{supplierLabels[contact.supplier] ?? contact.supplier}</SupplierTag>
+        </h3>
         <SaveBadge state={saveState} errorMsg={errorMsg} />
       </div>
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: '0.875rem 1rem',
-        }}
-      >
+      <div className="form-grid">
         <Field
           label="Credit email"
           hint="Where credit-request emails get sent"
@@ -133,7 +115,7 @@ export default function SupplierForm({ contact }: { contact: SupplierContact }) 
         />
         <div style={{ gridColumn: '1 / -1' }}>
           <label className="label">Email signature</label>
-          <p style={{ fontSize: '11px', color: 'var(--muted)', margin: '0 0 0.375rem' }}>
+          <p className="field-hint">
             Appears at the bottom of credit-request emails. Leave empty to use your account email.
           </p>
           <textarea
@@ -172,7 +154,7 @@ function Field({
     <div>
       <label className="label">{label}</label>
       {hint && (
-        <p style={{ fontSize: '11px', color: 'var(--muted)', margin: '0 0 0.375rem' }}>{hint}</p>
+        <p className="field-hint">{hint}</p>
       )}
       <input
         className="input"

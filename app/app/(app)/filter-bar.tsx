@@ -1,15 +1,14 @@
 'use client';
 
 /**
- * Shared filter bar used on /statements and /invoices list pages.
+ * Filter bar for the deliveries and statements lists: a search field, a
+ * supplier picker (when there are two or more suppliers), any extra pickers
+ * the page passes in, and how many rows match.
  *
- * Two controls + a result counter:
- *   1. Search input (left-icon, debounced via useEffect on the parent)
- *   2. Supplier select (only renders if there are 2+ suppliers in the list)
- *
- * The bar sits above the table card; its background blends into the page
- * (transparent) so it reads as part of the page chrome, not a sub-toolbar.
+ * Phones: the search takes the full width and the pickers sit below it.
  */
+
+import type { ReactNode } from 'react';
 
 export type SupplierOption = {
   value: string;
@@ -25,6 +24,8 @@ export function FilterBar({
   placeholder,
   resultCount,
   totalCount,
+  filtered,
+  children,
 }: {
   query: string;
   onQueryChange: (v: string) => void;
@@ -34,9 +35,12 @@ export function FilterBar({
   placeholder: string;
   resultCount: number;
   totalCount: number;
+  /** Other filters are on, so show "n of total". */
+  filtered?: boolean;
+  children?: ReactNode;
 }) {
   const showSupplierFilter = supplierOptions.length >= 2;
-  const isFiltered = query.trim().length > 0 || supplier !== 'all';
+  const isFiltered = filtered || query.trim().length > 0 || supplier !== 'all';
 
   return (
     <div className="filter-bar">
@@ -49,6 +53,7 @@ export function FilterBar({
           placeholder={placeholder}
           className="filter-bar-input"
           aria-label="Search"
+          enterKeyHint="search"
         />
         {query && (
           <button
@@ -62,29 +67,24 @@ export function FilterBar({
         )}
       </div>
 
-      {showSupplierFilter && (
-        <select
-          className="filter-bar-select"
-          value={supplier}
-          onChange={e => onSupplierChange(e.target.value)}
-          aria-label="Filter by supplier"
-        >
-          <option value="all">All suppliers</option>
-          {supplierOptions.map(o => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
-      )}
-
-      <div className="filter-bar-count">
-        {isFiltered ? (
-          <span>
-            <span style={{ fontWeight: 500, color: 'var(--foreground)' }}>{resultCount}</span>{' '}
-            of {totalCount}
-          </span>
-        ) : (
-          <span>{totalCount} total</span>
+      <div className="filter-bar-pickers">
+        {showSupplierFilter && (
+          <select
+            className="filter-bar-select"
+            value={supplier}
+            onChange={e => onSupplierChange(e.target.value)}
+            aria-label="Filter by supplier"
+          >
+            <option value="all">All suppliers</option>
+            {supplierOptions.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
         )}
+        {children}
+        <div className="filter-bar-count" aria-live="polite">
+          {isFiltered ? `${resultCount} of ${totalCount}` : `${totalCount} in all`}
+        </div>
       </div>
     </div>
   );
@@ -94,8 +94,8 @@ function SearchIcon() {
   return (
     <svg
       className="filter-bar-search-icon"
-      width="14"
-      height="14"
+      width="15"
+      height="15"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -104,8 +104,8 @@ function SearchIcon() {
       strokeLinejoin="round"
       aria-hidden
     >
-      <circle cx="11" cy="11" r="8" />
-      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+      <circle cx="11" cy="11" r="7.5" />
+      <line x1="20.5" y1="20.5" x2="16.4" y2="16.4" />
     </svg>
   );
 }

@@ -1,26 +1,17 @@
 'use client';
 
 /**
- * Statements list — client component that renders the statements table
- * with a filter bar (search + supplier filter) above.
+ * Statements list — filter bar and one row per statement.
  *
- * Filtering is purely client-side. We get the full list from the server
- * once; the user types/filters/sorts without round-trips. This is fine for
- * the realistic data volume (a pharmacy gets a handful of statements per
- * supplier per month — even years of history fits in memory comfortably).
- *
- * Sort defaults: newest first by statement date. Click any column header
- * to toggle sort direction; click another header to switch sort key.
+ * Filtering is client-side: a pharmacy gets a handful of statements per
+ * supplier a month, so years of history fit in memory. Newest first by
+ * default; any header sorts. On phones each row reads as two lines.
  */
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { FilterBar, type SupplierOption } from '../filter-bar';
-
-const supplierLabels: Record<string, string> = {
-  aah: 'AAH', aver: 'Aver', phoenix: 'Phoenix',
-  alliance: 'Alliance', ethigen: 'Ethigen', numark: 'Numark',
-};
+import { Status, SupplierTag, money, shortDate, supplierLabel } from '../ui';
 
 export type StatementRow = {
   id: string;
@@ -43,10 +34,7 @@ export default function StatementsList({ rows }: { rows: StatementRow[] }) {
 
   const supplierOptions: SupplierOption[] = useMemo(() => {
     const set = new Set(rows.map(r => r.supplier));
-    return Array.from(set).map(s => ({
-      value: s,
-      label: supplierLabels[s] ?? s,
-    }));
+    return Array.from(set).map(s => ({ value: s, label: supplierLabel(s) }));
   }, [rows]);
 
   const filtered = useMemo(() => {
@@ -56,8 +44,9 @@ export default function StatementsList({ rows }: { rows: StatementRow[] }) {
       if (!q) return true;
       const date = new Date(r.statement_date).toLocaleDateString('en-GB');
       return (
-        (supplierLabels[r.supplier] ?? r.supplier).toLowerCase().includes(q)
+        supplierLabel(r.supplier).toLowerCase().includes(q)
         || date.toLowerCase().includes(q)
+        || shortDate(r.statement_date).toLowerCase().includes(q)
         || String(r.gross_total).includes(q)
       );
     });
@@ -68,23 +57,11 @@ export default function StatementsList({ rows }: { rows: StatementRow[] }) {
     out.sort((a, b) => {
       let cmp = 0;
       switch (sortKey) {
-        case 'date':
-          cmp = a.statement_date.localeCompare(b.statement_date);
-          break;
-        case 'supplier':
-          cmp = (supplierLabels[a.supplier] ?? a.supplier).localeCompare(
-            supplierLabels[b.supplier] ?? b.supplier
-          );
-          break;
-        case 'total':
-          cmp = a.gross_total - b.gross_total;
-          break;
-        case 'matched':
-          cmp = a.reconciled_count - b.reconciled_count;
-          break;
-        case 'pending':
-          cmp = a.credits_pending - b.credits_pending;
-          break;
+        case 'date': cmp = a.statement_date.localeCompare(b.statement_date); break;
+        case 'supplier': cmp = supplierLabel(a.supplier).localeCompare(supplierLabel(b.supplier)); break;
+        case 'total': cmp = a.gross_total - b.gross_total; break;
+        case 'matched': cmp = a.reconciled_count - b.reconciled_count; break;
+        case 'pending': cmp = a.credits_pending - b.credits_pending; break;
       }
       return sortDir === 'asc' ? cmp : -cmp;
     });
@@ -108,68 +85,54 @@ export default function StatementsList({ rows }: { rows: StatementRow[] }) {
         supplier={supplier}
         onSupplierChange={setSupplier}
         supplierOptions={supplierOptions}
-        placeholder="Search by date, supplier, or amount"
+        placeholder="Date, supplier or amount"
         resultCount={sorted.length}
         totalCount={rows.length}
       />
 
       <div className="card" style={{ overflow: 'hidden' }}>
         <div className="table-scroll">
-        <table className="table">
-          <thead>
-            <tr>
-              <SortableHeader label="Supplier" sortKey="supplier" current={sortKey} dir={sortDir} onClick={clickHeader} />
-              <SortableHeader label="Statement date" sortKey="date" current={sortKey} dir={sortDir} onClick={clickHeader} />
-              <SortableHeader label="Total" sortKey="total" current={sortKey} dir={sortDir} onClick={clickHeader} numeric />
-              <SortableHeader label="Matched" sortKey="matched" current={sortKey} dir={sortDir} onClick={clickHeader} />
-              <SortableHeader label="Credits pending" sortKey="pending" current={sortKey} dir={sortDir} onClick={clickHeader} />
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.length === 0 ? (
+          <table className="table rows">
+            <thead>
               <tr>
-                <td colSpan={5} style={{ textAlign: 'center', color: 'var(--muted)', padding: '2.5rem 1rem', fontSize: '12px' }}>
-                  No statements match your filters.
-                </td>
+                <SortableHeader label="Statement" sortKey="date" current={sortKey} dir={sortDir} onClick={clickHeader} />
+                <SortableHeader label="Supplier" sortKey="supplier" current={sortKey} dir={sortDir} onClick={clickHeader} />
+                <SortableHeader label="Matched" sortKey="matched" current={sortKey} dir={sortDir} onClick={clickHeader} />
+                <SortableHeader label="Total" sortKey="total" current={sortKey} dir={sortDir} onClick={clickHeader} numeric />
+                <SortableHeader label="Still owed" sortKey="pending" current={sortKey} dir={sortDir} onClick={clickHeader} />
               </tr>
-            ) : sorted.map(s => {
-              const total = s.reconciled_count + s.unreconciled_count;
-              const allMatched = s.unreconciled_count === 0;
-              const href = `/statements/${s.id}`;
-              return (
-                <tr key={s.id} style={{ cursor: 'pointer' }}>
-                  <td>
-                    <Link href={href} className="row-link" style={{ color: 'var(--muted)' }}>
-                      {supplierLabels[s.supplier] ?? s.supplier}
-                    </Link>
-                  </td>
-                  <td style={{ fontWeight: 500 }}>
-                    <Link href={href} className="row-link">
-                      {new Date(s.statement_date).toLocaleDateString('en-GB')}
-                    </Link>
-                  </td>
-                  <td className="num" style={{ fontWeight: 500 }}>
-                    £{s.gross_total.toFixed(2)}
-                  </td>
-                  <td>
-                    <span className={allMatched ? 'badge badge-success' : 'badge badge-warning'}>
-                      {s.reconciled_count} / {total}
-                    </span>
-                  </td>
-                  <td>
-                    {s.credits_pending > 0 ? (
-                      <span className="badge badge-warning">
-                        £{s.credits_pending.toFixed(2)}
-                      </span>
-                    ) : (
-                      <span style={{ color: 'var(--muted-light)', fontSize: '12px' }}>—</span>
-                    )}
-                  </td>
+            </thead>
+            <tbody>
+              {sorted.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="empty-row">No statements match these filters.</td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              ) : sorted.map(s => {
+                const lines = s.reconciled_count + s.unreconciled_count;
+                return (
+                  <tr key={s.id}>
+                    <td className="c-title">
+                      <Link href={`/statements/${s.id}`} className="row-cover" prefetch={false}>{shortDate(s.statement_date)}</Link>
+                    </td>
+                    <td className="c-meta"><SupplierTag code={s.supplier} /></td>
+                    <td className="c-meta">
+                      {s.unreconciled_count === 0
+                        ? <span className="text-faint">All {lines} matched</span>
+                        : <span>{s.reconciled_count} of {lines} matched</span>}
+                    </td>
+                    <td className="num c-value">{money(s.gross_total)}</td>
+                    <td className="c-status">
+                      {s.credits_pending > 0
+                        ? <Status tone="warn">{money(s.credits_pending)} owed</Status>
+                        : s.unreconciled_count > 0
+                        ? <Status tone="neutral">{s.unreconciled_count} to match</Status>
+                        : <Status tone="good">Reconciled</Status>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
     </>
@@ -193,16 +156,11 @@ function SortableHeader({
 }) {
   const isActive = current === sortKey;
   return (
-    <th className={numeric ? 'num' : undefined}>
-      <button
-        type="button"
-        onClick={() => onClick(sortKey)}
-        className="sort-header"
-        aria-sort={isActive ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-      >
+    <th className={numeric ? 'num' : undefined} aria-sort={isActive ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+      <button type="button" onClick={() => onClick(sortKey)} className="sort-header">
         <span>{label}</span>
         <span className={`sort-indicator${isActive ? ' is-active' : ''}`} aria-hidden>
-          {isActive ? (dir === 'asc' ? '↑' : '↓') : '↕'}
+          {isActive ? (dir === 'asc' ? '↑' : '↓') : ''}
         </span>
       </button>
     </th>

@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/server';
+import { getRequestClient } from '@/lib/session';
 import { creditShare, creditValue } from '@/lib/credit-amount';
 import StatementDetailTable, { type StatementDetailRow } from './statement-detail-table';
 
@@ -15,7 +15,7 @@ export default async function StatementDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
+  const supabase = await getRequestClient();
 
   // We try the full SELECT (with the credit→line link from migration 0005)
   // first; if that column doesn't exist yet we fall back to the pre-0005

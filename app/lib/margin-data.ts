@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { getCurrentUser, getRequestClient } from '@/lib/session';
 import type { Period } from './period';
 import type { MarginLine, ProductMargin, SupplierMargin, SupplierPerformance } from './margin-report';
 type Page<T> = PromiseLike<{ data: T[] | null; error: { message: string } | null }>;
@@ -13,11 +13,16 @@ async function pages<T>(fetchPage: (from: number, to: number) => Page<T>): Promi
     if ((data ?? []).length < 1000) return rows;
   }
 }
+/**
+ * The request's Supabase client, once the session is known to be signed in.
+ * getCurrentUser checks the JWT locally (getClaims) and is shared with the
+ * layout for the render, so this adds no Auth round trip; RLS still decides
+ * what the queries return.
+ */
 async function signedIn() {
-  const db = await createClient();
-  const { data: { user } } = await db.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) throw new Error('Sign in to view your pharmacy records.');
-  return db;
+  return getRequestClient();
 }
 const args = (p: Period) => ({ p_from: p.from, p_to: p.to });
 export async function loadMarginSummary(p: Period) {

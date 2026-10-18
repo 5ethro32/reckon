@@ -19,12 +19,12 @@ export default async function SettingsPage() {
   if (!membership) redirect('/no-access');
   const pharmacy = membership.pharmacy;
   return (
-    <div style={{ maxWidth: '36rem' }}>
+    <div style={{ maxWidth: '40rem' }}>
       <div className="page-header" style={{ marginBottom: '1.75rem' }}>
         <div>
           <h1 className="page-header-title">Settings</h1>
           <p className="page-header-subtitle">
-            Manage your name, pharmacy details, and account.
+            Your name, your pharmacy, appearance and sign-in.
           </p>
         </div>
       </div>
