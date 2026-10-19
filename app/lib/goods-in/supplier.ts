@@ -4,6 +4,13 @@ const NAMES: Record<string, string> = {
   ethigen: 'Ethigen', numark: 'Numark', sigma: 'Sigma', lexon: 'Lexon',
 };
 const TONED = new Set(['aah', 'aver', 'phoenix', 'alliance']);
+const MARKS: Record<string, string> = { aah: 'AAH', aver: 'AV', phoenix: 'PH', alliance: 'AL', ethigen: 'ET', numark: 'NU', sigma: 'SI', lexon: 'LX' };
+
+/** A wholesaler's short mark for its badge: "AAH", "AV", "PH"; otherwise its first two letters. */
+export function supplierMark(supplier: string): string {
+  const key = supplier.trim().toLowerCase();
+  return MARKS[key] ?? (supplier.trim().replace(/[^a-z]/gi, '').slice(0, 2).toUpperCase() || '?');
+}
 
 export function supplierName(supplier: string): string {
   const key = supplier.trim().toLowerCase();

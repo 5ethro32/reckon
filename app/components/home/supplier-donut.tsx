@@ -70,6 +70,8 @@ export default function SupplierDonut({ views }: { views: View[] }) {
           ))}
         </div>
       )}
+      {/* Nothing to show: one quiet line, not an empty grey ring (Jethro, 19 Oct). */}
+      {total === 0 ? <p className="gi-empty hm-donut-empty">{view.empty}</p> : (
       <div className="hm-donut">
         <div className="hm-ring">
           <svg viewBox={`0 0 ${size} ${size}`} role="img" aria-label={total ? `${view.label}: ${money(total)}. ${view.slices.map(s => `${supplierName(s.supplier)} ${pct(s.value)}%`).join(', ')}.` : view.empty}>
@@ -92,8 +94,9 @@ export default function SupplierDonut({ views }: { views: View[] }) {
               </li>
             ))}
           </ul>
-        ) : <p className="hm-legend-empty">{view.empty}</p>}
+        ) : null}
       </div>
+      )}
     </section>
   );
 }

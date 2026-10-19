@@ -1,9 +1,9 @@
 'use client';
 import { useEffect, useRef, type ReactNode } from 'react';
-import { supplierTone } from '@/lib/goods-in/supplier';
+import { supplierMark, supplierTone } from '@/lib/goods-in/supplier';
 
 export function SupplierBadge({ supplier }: { supplier: string }) {
-  return <span className="gi-badge" style={{ ['--tone' as string]: supplierTone(supplier) }} aria-hidden="true"><i /></span>;
+  return <span className="gi-badge" style={{ ['--tone' as string]: supplierTone(supplier) }} aria-hidden="true"><b>{supplierMark(supplier)}</b></span>;
 }
 
 /** A slim track: received (green), problems (amber), the rest still to check. */
