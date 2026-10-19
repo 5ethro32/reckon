@@ -3,9 +3,11 @@
 /**
  * Sign-in form supporting two flows:
  *
- *   1. Magic link (default, primary CTA) — Supabase emails a one-time link.
- *      Subject to Supabase's 2-emails-per-hour-per-recipient rate limit on
- *      the default SMTP. Will be lifted once Resend SMTP is wired up.
+ *   1. Email code (default, primary CTA) — Supabase emails a one-time code,
+ *      typed in here (verifyOtp). The same email carries a link as a fallback,
+ *      but the code is what works when a mail scanner (Microsoft 365 Safe
+ *      Links) opens the link first, or the email is read on another device.
+ *      Subject to Supabase's 2-emails-per-hour rate limit on the default SMTP.
  *
  *   2. Password (progressive disclosure, "Sign in with password instead") —
  *      bypasses email entirely. Required as an escape hatch when the magic
@@ -31,6 +33,8 @@ export default function LoginForm() {
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState<Status>('idle');
   const [errorMessage, setErrorMessage] = useState('');
+  const [code, setCode] = useState('');
+  const [verifying, setVerifying] = useState(false);
 
   async function handleMagicLink(e: React.FormEvent) {
     e.preventDefault();
@@ -52,6 +56,37 @@ export default function LoginForm() {
     } else {
       setStatus('sent');
     }
+  }
+
+  async function handleCode(e: React.FormEvent) {
+    e.preventDefault();
+    const token = code.replace(/\s+/g, '');
+    if (!/^\d{6,10}$/.test(token)) { setErrorMessage('Enter the code from the email.'); return; }
+    setVerifying(true);
+    setErrorMessage('');
+    const supabase = createClient();
+    const { error } = await supabase.auth.verifyOtp({ email, token, type: 'email' });
+    if (error) {
+      setVerifying(false);
+      setErrorMessage(/expired|invalid/i.test(error.message) ? 'That code has expired or is wrong. Check the latest email, or send a new code.' : error.message);
+      return;
+    }
+    const failed = await finishSignIn(supabase);
+    if (failed) { setVerifying(false); setErrorMessage(failed); }
+  }
+
+  /** After any sign-in: make sure the user has a pharmacy, then open the dashboard. Returns an error message, or null. */
+  async function finishSignIn(supabase: ReturnType<typeof createClient>): Promise<string | null> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return 'Sign-in succeeded but no user returned. Please try again.';
+    const { data: memberships } = await supabase.from('pharmacy_memberships').select('pharmacy_id').eq('user_id', user.id).limit(1);
+    if (!memberships || memberships.length === 0) {
+      const { error: rpcError } = await supabase.rpc('setup_new_pharmacy', { p_pharmacy_name: 'My Pharmacy' });
+      if (rpcError) return 'Could not set up your account: ' + rpcError.message;
+    }
+    router.push('/dashboard');
+    router.refresh();
+    return null;
   }
 
   async function handlePasswordSignIn(e: React.FormEvent) {
@@ -112,30 +147,32 @@ export default function LoginForm() {
 
   if (status === 'sent') {
     return (
-      <div className="fade-in" style={{ textAlign: 'center', padding: '0.75rem 0' }}>
-        <div style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: '2.25rem',
-          height: '2.25rem',
-          borderRadius: '50%',
-          background: 'var(--status-success-bg)',
-          color: 'var(--status-success-text)',
-          marginBottom: '0.75rem',
-          fontSize: '14px',
-          fontWeight: 600,
-        }}>
-          ✓
-        </div>
-        <p style={{ fontSize: '14px', fontWeight: 500, margin: 0, marginBottom: '0.25rem' }}>
+      <form className="fade-in" onSubmit={handleCode} style={{ padding: '0.25rem 0' }}>
+        <p style={{ fontSize: '14px', fontWeight: 600, margin: 0, marginBottom: '0.25rem' }}>
           Check your inbox
         </p>
-        <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0, lineHeight: 1.5 }}>
-          We sent a sign-in link to{' '}
-          <span style={{ color: 'var(--foreground)' }}>{email}</span>
+        <p style={{ fontSize: '12.5px', color: 'var(--muted)', margin: 0, marginBottom: '0.9rem', lineHeight: 1.5 }}>
+          We sent a sign-in code to <span style={{ color: 'var(--foreground)' }}>{email}</span>. Type it here.
         </p>
-      </div>
+        <input
+          className="input"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          autoFocus
+          placeholder="Code"
+          aria-label="Sign-in code"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          style={{ width: '100%', fontSize: '20px', letterSpacing: '0.2em', textAlign: 'center', marginBottom: '0.6rem' }}
+        />
+        {errorMessage && <p role="alert" style={{ fontSize: '12.5px', color: 'var(--status-error-text, #c0392b)', margin: '0 0 0.6rem' }}>{errorMessage}</p>}
+        <button type="submit" className="btn btn-primary" disabled={verifying} style={{ width: '100%' }}>
+          {verifying ? 'Signing in…' : 'Sign in'}
+        </button>
+        <button type="button" className="btn-link" onClick={() => { setStatus('idle'); setCode(''); setErrorMessage(''); }} style={{ display: 'block', margin: '0.75rem auto 0', fontSize: '12.5px', background: 'none', border: 0, color: 'var(--muted)', cursor: 'pointer' }}>
+          Use a different email
+        </button>
+      </form>
     );
   }
 
@@ -203,8 +240,8 @@ export default function LoginForm() {
         style={{ width: '100%' }}
       >
         {status === 'sending'
-          ? (isPassword ? 'Signing in…' : 'Sending sign-in link…')
-          : (isPassword ? 'Sign in' : 'Send sign-in link')}
+          ? (isPassword ? 'Signing in…' : 'Sending code…')
+          : (isPassword ? 'Sign in' : 'Email me a sign-in code')}
       </button>
 
       {status === 'error' && (
@@ -243,7 +280,7 @@ export default function LoginForm() {
         }}
       >
         {isPassword
-          ? 'Use a sign-in link instead'
+          ? 'Use an email code instead'
           : 'Sign in with password instead'}
       </button>
     </form>

@@ -62,11 +62,12 @@ export async function updateSession(request: NextRequest) {
   // up. /api/health is public so external uptime monitors can ping without
   // a session. /forgot is public for password-reset requests. Anything
   // under /auth/ is also public (callback, confirm, reset) — those routes
-  // establish the session.
+  // establish the session. /api/cron/ checks its own CRON_SECRET (Vercel cron has no session).
   const publicPaths = ['/', '/no-access', '/privacy', '/terms', '/api/health', '/forgot'];
   const isPublic =
     publicPaths.some(p => path === p) ||
-    path.startsWith('/auth/');
+    path.startsWith('/auth/') ||
+    path.startsWith('/api/cron/');
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
