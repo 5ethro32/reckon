@@ -26,7 +26,10 @@ export default async function HomePage() {
     <div className="gi hm">
       <header className="hm-head">
         <h1 className="hm-title">Home</h1>
-        <Link href="/upload" className="gi-btn gi-btn-quiet gi-btn-sm gi-desk">Upload invoice</Link>
+        <span className="hm-actions gi-desk">
+          <Link href="/aver-slip" className="gi-btn gi-btn-quiet gi-btn-sm">Scan Aver slip</Link>
+          <Link href="/upload" className="gi-btn gi-btn-quiet gi-btn-sm">Upload invoice</Link>
+        </span>
       </header>
 
       <section className="hm-figs" aria-label="At a glance">
@@ -44,7 +47,10 @@ export default async function HomePage() {
           <Link href="/invoices" className="gi-link gi-desk">All invoices</Link>
         </div>
         {!next ? (
-          <p className="gi-empty">Every delivery is checked. Upload an invoice when the next one arrives.</p>
+          <>
+            <p className="gi-empty">Every delivery is checked. Upload an invoice when the next one arrives, or scan the Aver slip in the box.</p>
+            <div className="hm-scan gi-phone"><Link href="/aver-slip" className="gi-btn gi-btn-primary gi-btn-block"><ScanIcon />Scan Aver slip</Link></div>
+          </>
         ) : (
           <>
             {/* Phones: the next delivery, a big scan button, the rest folded. */}
@@ -52,6 +58,7 @@ export default async function HomePage() {
               <ul className="gi-rows"><li><DeliveryRow d={next} /></li></ul>
               <div className="hm-scan">
                 <Link href={`/invoices/${next.id}?scan=1`} className="gi-btn gi-btn-primary gi-btn-block"><ScanIcon />Scan delivery</Link>
+                <Link href="/aver-slip" className="gi-btn gi-btn-quiet gi-btn-block hm-slip">Scan Aver slip</Link>
               </div>
               {rest.length > 0 && (
                 <details className="hm-fold">
