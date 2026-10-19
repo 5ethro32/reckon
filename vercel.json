@@ -6,5 +6,11 @@
   "framework": "nextjs",
   "regions": [
     "dub1"
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/aver-invoices",
+      "schedule": "*/15 * * * *"
+    }
   ]
 }
