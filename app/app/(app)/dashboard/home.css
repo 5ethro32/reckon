@@ -1,4 +1,6 @@
-/* Home. Desktop: figures, deliveries beside the wholesaler ring, claims.
+/* Home. Desktop: figures, then deliveries and claims on the left and the wholesaler ring on the
+   right, the ring's card as tall as the left column with its contents centred, so the right
+   column never ends in blank space (Jethro, 19 Oct).
    Phones: the next delivery and its scan button first. */
 
 .hm {
@@ -9,13 +11,21 @@
     'figs figs'
     'deliv donut'
     'claims donut';
+  grid-template-rows: auto auto auto 1fr;
   align-items: start;
 }
 .hm-head { grid-area: head; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .hm-title { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.025em; }
 .hm-figs { grid-area: figs; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
 .hm-deliveries { grid-area: deliv; }
-.hm-donut-slot { grid-area: donut; min-width: 0; position: sticky; top: 16px; }
+.hm-donut-slot { grid-area: donut; min-width: 0; align-self: stretch; display: flex; }
+.hm-donut-slot > .hm-donut-card { flex: 1; display: flex; flex-direction: column; }
+.hm-donut-slot .hm-donut { flex: 1; justify-content: center; }
+@media (min-width: 901px) {
+  .hm-donut-slot .hm-ring { width: 196px; height: 196px; }
+  .hm-donut-slot .hm-ring-centre strong { font-size: 24px; }
+}
+.hm-donut-empty { padding-top: 14px; }
 .hm-claims { grid-area: claims; }
 
 .hm-fig {
@@ -76,21 +86,19 @@
   .hm-figs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 900px) and (min-width: 769px) {
-  .hm { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'head' 'figs' 'deliv' 'donut' 'claims'; }
-  .hm-donut-slot { position: static; }
+  .hm { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: 'head' 'figs' 'deliv' 'donut' 'claims'; }
 }
 
 /* Phones: what is at the door comes first. */
 @media (max-width: 768px) {
   .hm {
-    gap: 12px; grid-template-columns: minmax(0, 1fr);
+    gap: 12px; grid-template-columns: minmax(0, 1fr); grid-template-rows: none;
     grid-template-areas: 'head' 'deliv' 'figs' 'claims' 'donut';
   }
   .hm-title { font-size: 24px; }
   .hm-figs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .hm-fig { padding: 14px 16px; }
   .hm-fig strong { font-size: 21px; }
-  .hm-donut-slot { position: static; }
   .hm-donut { flex-direction: row; align-items: center; gap: 16px; padding: 16px 16px 18px; }
   .hm-ring { width: 128px; height: 128px; }
   .hm-ring-centre strong { font-size: 17px; }

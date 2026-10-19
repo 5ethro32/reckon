@@ -5,7 +5,8 @@
  * Each is read through a local alias with a fallback to the older variables,
  * so these pages render correctly whether or not the shared tokens are present.
  * Colour carries meaning only: green = received / money back, amber = waiting
- * or needs attention, brand blue = something to press, tones = wholesalers.
+ * or needs attention, tones = wholesalers. The main action is solid ink (white on
+ * black in dark mode), as Apple's own apps do; brand blue is only the logo and focus ring.
  */
 
 .gi {
@@ -81,8 +82,8 @@
 }
 .gi-btn:active { transform: scale(0.985); }
 .gi-btn:disabled { opacity: 0.45; cursor: default; transform: none; }
-.gi-btn-primary { background: var(--gi-brand); color: #fff; }
-.gi-btn-primary:hover:not(:disabled) { background: var(--brand-hover, #0b7eb0); }
+.gi-btn-primary { background: var(--gi-ink); color: var(--gi-raised); }
+.gi-btn-primary:hover:not(:disabled) { background: rgb(var(--gi-ink-rgb) / 0.86); }
 .gi-btn-quiet { background: var(--gi-press); color: var(--gi-ink); }
 .gi-btn-quiet:hover:not(:disabled) { background: rgb(var(--gi-ink-rgb) / 0.1); }
 .gi-btn-block { width: 100%; min-height: 52px; font-size: 16px; }
@@ -114,15 +115,21 @@
 }
 a.gi-row:hover, button.gi-row:hover { background: var(--gi-hover); }
 a.gi-row:active { background: var(--gi-press); }
+/* The wholesaler's short mark in its tone on a soft wash of it: says who it is at a glance. */
 .gi-badge {
-  position: relative; width: 36px; height: 36px; border-radius: 50%;
+  position: relative; width: 36px; height: 36px; border-radius: 10px;
   display: grid; place-items: center;
 }
 .gi-badge::before {
-  content: ''; position: absolute; inset: 0; border-radius: 50%;
-  background: var(--tone); opacity: 0.14;
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  background: var(--tone); opacity: 0.22;
 }
-.gi-badge > i { width: 10px; height: 10px; border-radius: 50%; background: var(--tone); position: relative; }
+.gi-badge > b {
+  position: relative; color: color-mix(in srgb, var(--tone) 45%, var(--gi-ink)); font-size: 10.5px; font-weight: 700; letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+[data-theme="dark"] .gi-badge::before { opacity: 0.2; }
+[data-theme="dark"] .gi-badge > b { color: color-mix(in srgb, var(--tone) 55%, var(--gi-ink)); }
 .gi-row-title { display: block; font-size: 14px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gi-row-sub { display: flex; gap: 6px; align-items: center; margin-top: 2px; font-size: 12.5px; color: var(--gi-ink-soft); white-space: nowrap; overflow: hidden; }
 .gi-row-sub > span { overflow: hidden; text-overflow: ellipsis; }
