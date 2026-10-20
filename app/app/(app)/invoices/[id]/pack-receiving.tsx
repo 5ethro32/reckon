@@ -1,27 +1,33 @@
 'use client';
 
 /**
- * Full-screen pack scanning.
+ * The camera strip on the receiving screen.
  *
  * The camera keeps reading. A pack whose barcode this pharmacy has already
- * matched to the invoice line is recorded straight away (tick, short buzz).
- * A new barcode is matched by the invoice's own GTIN, then NHS dm+d, and needs
- * one tap to confirm the product and pack before it is saved, as before.
- * Packs not on the invoice, expired or short-dated packs are called out.
+ * matched to the invoice line is recorded straight away (tick, short buzz)
+ * and its row in the list underneath counts up. A new barcode is matched by
+ * the invoice's own GTIN, then NHS dm+d, and needs one tap to confirm the
+ * product and pack before it is saved. Packs not on the invoice go to their
+ * own list on the screen; expired or short-dated packs are called out.
  *
- * Contracts unchanged: POST /api/receiving/lookup, POST and GET /api/receiving,
+ * The strip can be made smaller (more of the list in view) or closed.
+ * A handheld scanner types into the barcode box.
+ *
+ * Contracts unchanged: POST /api/receiving/lookup, POST /api/receiving,
  * DELETE /api/barcode-catalog.
  */
 
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { parsePackBarcode, type PackBarcode } from '@/lib/receiving';
-import { CheckIcon, Stepper } from '@/components/goods-in/ui';
+import { CheckIcon, Sheet, Stepper } from '@/components/goods-in/ui';
 
-type Line = { id: string; description: string; pack_size: string | null; supplier_sku?: string | null; qty_ordered: number; qty_received: number | null; flags?: string[] };
+export type StripLine = { id: string; description: string; pack_size: string | null; supplier_sku?: string | null; qty_ordered: number; qty_received: number | null; flags: string[] };
+/** A pack scanned that no invoice line matches. */
+export type StrayScan = { key: string; gtin: string; name: string | null; at: number; count: number };
 
 type Lookup = { lineIds: string[]; source: 'invoice' | 'mapping' | 'dmd' | 'none'; dmdName: string | null };
 type Pending = { raw: string; pack: PackBarcode; lookup: Lookup; lineId: string | null; quantity: number; choosing: boolean; shortDated: boolean; linear: boolean };
-type Result = { key: string; tone: 'good' | 'warn' | 'bad'; title: string; detail?: string; mappingLineId?: string; gtin?: string };
+type Result = { key: string; tone: 'good' | 'warn' | 'bad'; title: string; detail?: string; mappingLineId?: string; gtin?: string; stray?: Pending };
 
 /** Packs expiring within this many days are flagged on arrival. */
 const SHORT_DATED_DAYS = 90;
@@ -39,15 +45,24 @@ function buzz(pattern: number | number[]) {
   try { navigator.vibrate?.(pattern); } catch { /* not supported */ }
 }
 
-export default function PackReceiving({ invoiceId, invoiceNumber, lines, onClose }: {
-  invoiceId: string; invoiceNumber: string; lines: Line[]; onClose: () => void;
+export default function PackReceiving({ invoiceId, invoiceNumber, lines, packs, packsReceived, compact, onToggleCompact, onClose, onRecorded, onStray, onStrayResolved }: {
+  invoiceId: string;
+  invoiceNumber: string;
+  lines: StripLine[];
+  packs: number;
+  packsReceived: number;
+  compact: boolean;
+  onToggleCompact: () => void;
+  onClose: () => void;
+  /** A pack was recorded: the line's new received total. */
+  onRecorded: (lineId: string, received: number) => void;
+  onStray: (gtin: string, name: string | null) => void;
+  onStrayResolved: (gtin: string) => void;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const [cameraOn, setCameraOn] = useState(true);
   const [cameraError, setCameraError] = useState('');
-  const [count, setCount] = useState(0);
-  const [received, setReceived] = useState<Record<string, number>>(() => Object.fromEntries(lines.map(l => [l.id, l.qty_received ?? 0])));
-  const [results, setResults] = useState<Result[]>([]);
+  const [result, setResult] = useState<Result | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState(0);
@@ -62,7 +77,7 @@ export default function PackReceiving({ invoiceId, invoiceNumber, lines, onClose
   useEffect(() => { pendingRef.current = pending; }, [pending]);
 
   const lineById = useCallback((id: string | null) => lines.find(l => l.id === id), [lines]);
-  const push = (r: Omit<Result, 'key'>) => setResults(prev => [{ ...r, key: crypto.randomUUID() }, ...prev].slice(0, 6));
+  const show = (r: Omit<Result, 'key'>) => setResult({ ...r, key: crypto.randomUUID() });
 
   async function record(p: Pending, confirmMapping: boolean) {
     const line = lineById(p.lineId);
@@ -80,22 +95,22 @@ export default function PackReceiving({ invoiceId, invoiceNumber, lines, onClose
       if (!response.ok) throw Error(data.error ?? 'Could not record this pack');
       retry.current = null;
       if (p.pack.serial) serials.current.add(`${p.pack.gtin}:${p.pack.serial}`);
-      setCount(c => c + p.quantity);
-      setReceived(prev => ({ ...prev, [line.id]: data.receipt.quantity }));
+      onRecorded(line.id, data.receipt.quantity);
+      if (p.lookup.lineIds.length === 0) onStrayResolved(p.pack.gtin);
       setFlash(f => f + 1);
       const exp = expiryInfo(p.pack.expiry);
       if (exp?.shortDated) {
         buzz([40, 60, 40]);
-        push({ tone: 'warn', title: `Short-dated · expires ${exp.label}`, detail: `${line.description} · ${data.receipt.quantity} of ${line.qty_ordered} received` });
+        show({ tone: 'warn', title: `Short-dated, expires ${exp.label}`, detail: `${line.description} · ${data.receipt.quantity} of ${line.qty_ordered}` });
       } else {
         buzz(35);
-        push({ tone: 'good', title: line.description, detail: `${data.receipt.quantity} of ${line.qty_ordered} received${p.quantity > 1 ? ` · ${p.quantity} packs added` : ''}` });
+        show({ tone: 'good', title: line.description, detail: `${data.receipt.quantity} of ${line.qty_ordered}${p.quantity > 1 ? ` · ${p.quantity} packs added` : ''}` });
       }
       setPending(null);
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Could not record this pack';
       buzz([80, 40, 80]);
-      push({ tone: 'bad', title: message, detail: line.description, ...(/different product or pack/.test(message) ? { mappingLineId: line.id, gtin: p.pack.gtin } : {}) });
+      show({ tone: 'bad', title: message, detail: line.description, ...(/different product or pack/.test(message) ? { mappingLineId: line.id, gtin: p.pack.gtin } : {}) });
       setPending(null);
     } finally {
       busyRef.current = false; setBusy(false);
@@ -111,17 +126,17 @@ export default function PackReceiving({ invoiceId, invoiceNumber, lines, onClose
     last.current = { text, at: now };
     let pack: PackBarcode;
     try { pack = parsePackBarcode(text); } catch (e) {
-      push({ tone: 'bad', title: 'Barcode not read', detail: e instanceof Error ? e.message : undefined });
+      show({ tone: 'bad', title: 'Barcode not read', detail: e instanceof Error ? e.message : undefined });
       return;
     }
     if (pack.serial && serials.current.has(`${pack.gtin}:${pack.serial}`)) {
-      push({ tone: 'warn', title: 'Already scanned', detail: 'This exact pack was counted a moment ago.' });
+      show({ tone: 'warn', title: 'Already scanned', detail: 'This exact pack was counted a moment ago.' });
       return;
     }
     const exp = expiryInfo(pack.expiry);
     if (exp?.expired) {
       buzz([80, 40, 80]);
-      push({ tone: 'bad', title: `Expired ${exp.label}`, detail: 'Set it aside and record the line as a problem.' });
+      show({ tone: 'bad', title: `Expired ${exp.label}`, detail: 'Set it aside and record the line as a problem.' });
       return;
     }
     busyRef.current = true; setBusy(true);
@@ -134,7 +149,14 @@ export default function PackReceiving({ invoiceId, invoiceNumber, lines, onClose
     busyRef.current = false; setBusy(false);
     const p: Pending = { raw: text, pack, lookup, lineId: lookup.lineIds.length === 1 ? lookup.lineIds[0] : null, quantity: 1, choosing: lookup.lineIds.length > 1, shortDated: !!exp?.shortDated, linear: !pack.batch && !pack.expiry && !pack.serial };
     if (lookup.source === 'mapping' && lookup.lineIds.length === 1) { await record(p, false); return; }
-    if (lookup.lineIds.length === 0) buzz([60, 50, 60]);
+    if (lookup.lineIds.length === 0) {
+      // Not on the invoice: it joins its own list and scanning carries on. If it does belong, the
+      // result offers the line list.
+      buzz([60, 50, 60]);
+      onStray(pack.gtin, lookup.dmdName);
+      show({ tone: 'warn', title: 'Not on this invoice, set it aside', detail: lookup.dmdName ?? `Barcode ${pack.gtin}`, stray: p });
+      return;
+    }
     setPending(p);
   }
 
@@ -146,7 +168,7 @@ export default function PackReceiving({ invoiceId, invoiceNumber, lines, onClose
     let controls: { stop(): void } | undefined;
     (async () => {
       try {
-        if (!navigator.mediaDevices?.getUserMedia) throw Error('The camera needs a secure (https) page and a supported browser. Type the barcode or use a handheld scanner below.');
+        if (!navigator.mediaDevices?.getUserMedia) throw Error('The camera needs a secure (https) page and a supported browser. Type the barcode, use a handheld scanner, or tick the lines by hand.');
         const [{ BrowserMultiFormatReader, BarcodeFormat }, { DecodeHintType }] = await Promise.all([import('@zxing/browser'), import('@zxing/library')]);
         if (cancelled || !video.current) return;
         // ASSUME_GS1 keeps FNC1 separators in GS1 codes; TRY_HARDER helps small DataMatrix codes on packs.
@@ -159,7 +181,7 @@ export default function PackReceiving({ invoiceId, invoiceNumber, lines, onClose
         if (cancelled) controls.stop();
         else setCameraError('');
       } catch (e) {
-        if (!cancelled) { setCameraError(e instanceof Error && e.message ? e.message : 'Camera unavailable. Type the barcode or use a handheld scanner below.'); setCameraOn(false); }
+        if (!cancelled) { setCameraError(e instanceof Error && e.message ? e.message : 'Camera unavailable. Type the barcode, use a handheld scanner, or tick the lines by hand.'); setCameraOn(false); }
       }
     })();
     return () => { cancelled = true; controls?.stop(); };
@@ -170,15 +192,6 @@ export default function PackReceiving({ invoiceId, invoiceNumber, lines, onClose
     if (window.matchMedia('(min-width: 769px) and (pointer: fine)').matches) manual.current?.focus();
   }, []);
 
-  // Escape closes; the page behind does not scroll.
-  useEffect(() => {
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape' && !pendingRef.current) onClose(); };
-    document.addEventListener('keydown', key);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.removeEventListener('keydown', key); document.body.style.overflow = prev; };
-  }, [onClose]);
-
   async function removeMapping(r: Result) {
     if (!r.mappingLineId || !r.gtin) return;
     setBusy(true);
@@ -186,135 +199,120 @@ export default function PackReceiving({ invoiceId, invoiceNumber, lines, onClose
       const response = await fetch('/api/barcode-catalog', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lineId: r.mappingLineId, gtin: r.gtin }) });
       const data = await response.json();
       if (!response.ok) throw Error(data.error ?? 'Could not remove the saved barcode');
-      setResults(prev => prev.filter(x => x.key !== r.key));
-      push({ tone: 'good', title: data.removed ? 'Old barcode removed' : 'No saved barcode to remove', detail: 'Scan the pack again and confirm the product.' });
+      show({ tone: 'good', title: data.removed ? 'Old barcode removed' : 'No saved barcode to remove', detail: 'Scan the pack again and confirm the product.' });
       last.current = { text: '', at: 0 };
     } catch (e) {
-      push({ tone: 'bad', title: e instanceof Error ? e.message : 'Could not remove the saved barcode' });
+      show({ tone: 'bad', title: e instanceof Error ? e.message : 'Could not remove the saved barcode' });
     } finally { setBusy(false); }
   }
 
-  const totalOrdered = lines.reduce((s, l) => s + l.qty_ordered, 0);
-  const totalReceived = Object.values(received).reduce((s, n) => s + n, 0);
   const chosen = lineById(pending?.lineId ?? null);
   const candidates = pending ? (pending.lookup.lineIds.length > 1 ? lines.filter(l => pending.lookup.lineIds.includes(l.id)) : lines) : [];
   const exp = pending ? expiryInfo(pending.pack.expiry) : null;
+  const skip = () => setPending(null);
 
   return (
-    <div className="gi gs" role="dialog" aria-modal="true" aria-label={`Scan packs for ${invoiceNumber}`}>
-      <div className="gs-camera">
+    <section className={`gr-strip${compact ? ' is-compact' : ''}${cameraOn ? '' : ' is-off'}`} aria-label={`Scan packs for ${invoiceNumber}`}>
+      <div className="gr-camera">
         <video ref={video} muted playsInline aria-hidden="true" />
-        <div className={`gs-frame${flash ? ' is-hit' : ''}`} key={flash} aria-hidden="true">
+        <div className={`gs-frame gr-frame${flash ? ' is-hit' : ''}`} key={flash} aria-hidden="true">
           {flash > 0 && <span className="gs-hit"><CheckIcon /></span>}
         </div>
-        <div className="gs-top">
-          <button type="button" className="gs-done" onClick={onClose}>Done</button>
-          <span className="gs-title">{invoiceNumber}</span>
-          <span className="gs-count tnum" aria-live="polite">{count} {count === 1 ? 'pack' : 'packs'}</span>
+        <div className="gr-cam-top">
+          <button type="button" className="gr-pill" onClick={onClose}>Done</button>
+          <span className="gr-pill gr-count tnum" aria-live="polite">{packsReceived} of {packs} packs</span>
+          <button type="button" className="gr-pill gr-size" onClick={onToggleCompact} aria-label={compact ? 'Make the camera larger' : 'Make the camera smaller'} aria-pressed={compact}>
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d={compact ? 'M4 6.5 8 10.5l4-4' : 'M4 9.5 8 5.5l4 4'} />
+            </svg>
+          </button>
         </div>
         {!cameraOn && (
-          <div className="gs-camera-off">
+          <div className="gr-cam-off">
             <p>{cameraError || 'Camera paused.'}</p>
-            <button type="button" className="gi-btn gi-btn-sm gs-ghost" onClick={() => { setCameraError(''); setCameraOn(true); }}>Try the camera again</button>
+            <button type="button" className="gr-pill" onClick={() => { setCameraError(''); setCameraOn(true); }}>Try the camera again</button>
           </div>
         )}
-        <p className="gs-hint" aria-hidden="true">{busy ? 'Checking…' : 'Point at the barcode on the pack'}</p>
+        {cameraOn && !result && <p className="gr-hint" aria-hidden="true">{busy ? 'Checking…' : 'Point at the barcode on a pack'}</p>}
       </div>
 
-      <div className="gs-panel">
-        <div className="gs-tally">
-          <span className="tnum"><strong>{totalReceived}</strong> of {totalOrdered} packs received</span>
-          <span className="gi-track" aria-hidden="true"><span className="is-good" style={{ width: `${totalOrdered ? Math.min(100, (totalReceived / totalOrdered) * 100) : 0}%` }} /></span>
-        </div>
+      <div className="gr-strip-foot">
+        <p className={`gr-last${result ? ` is-${result.tone}` : ''}`} role="status" aria-live="polite">
+          {result ? (
+            <>
+              <span className="gr-last-mark" aria-hidden="true">{result.tone === 'good' ? <CheckIcon /> : '!'}</span>
+              <span className="gr-last-text"><strong>{result.title}</strong>{result.detail && <span className="tnum">{result.detail}</span>}</span>
+              {result.mappingLineId && <button type="button" className="gs-text-btn" disabled={busy} onClick={() => void removeMapping(result)}>Remove saved barcode</button>}
+              {result.stray && <button type="button" className="gs-text-btn" disabled={busy || !!pending} onClick={() => setPending({ ...result.stray!, choosing: true })}>Choose line</button>}
+            </>
+          ) : <span className="gr-last-text"><span>{busy ? 'Checking…' : 'Each pack you scan counts on its line below.'}</span></span>}
+        </p>
+        <form className="gr-manual" onSubmit={e => { e.preventDefault(); last.current = { text: '', at: 0 }; void handle(typed); setTyped(''); }}>
+          <input ref={manual} className="gi-input" value={typed} onChange={e => setTyped(e.target.value)} placeholder="Type or scan a barcode"
+            autoComplete="off" inputMode="numeric" aria-label="Barcode" disabled={!!pending} />
+          <button type="submit" className="gi-btn gi-btn-quiet gi-btn-sm" disabled={!typed.trim() || !!pending}>Add</button>
+        </form>
+      </div>
 
-        {pending && (
-          <div className={`gs-card${pending.lookup.lineIds.length === 0 && !chosen ? ' is-warn' : ''}`} role="alert">
-            {pending.lookup.lineIds.length === 0 && !pending.lineId ? (
-              <>
-                <p className="gs-card-title"><i className="gi-dot is-warn" />Not on this invoice</p>
-                <p className="gs-card-text">{pending.lookup.dmdName ? `NHS dm+d lists this pack as ${pending.lookup.dmdName}, but no line on ${invoiceNumber} matches it.` : 'This barcode is not known yet and no invoice line matches it.'} Set it aside, or choose the line if you are sure it belongs here.</p>
-              </>
-            ) : chosen && !pending.choosing ? (
-              <>
-                <p className="gs-card-title">{chosen.description}</p>
-                <p className="gs-card-text">
-                  {chosen.pack_size ? `Pack ${chosen.pack_size} · ` : ''}{received[chosen.id] ?? 0} of {chosen.qty_ordered} received.{' '}
-                  {pending.lookup.source === 'dmd' ? `Suggested from NHS dm+d (${pending.lookup.dmdName}).` : pending.lookup.source === 'invoice' ? 'Matched by the barcode printed on the invoice.' : ''}{' '}
-                  Check the product and pack size match, then record. The barcode is saved for next time.
-                </p>
-                {exp?.shortDated && <p className="gs-card-text"><i className="gi-dot is-warn" /> Short-dated: expires {exp.label}.</p>}
-              </>
-            ) : (
-              <p className="gs-card-title">{pending.lookup.lineIds.length > 1 ? `This barcode fits ${pending.lookup.lineIds.length} lines. Which one is it?` : 'Which line is this pack?'}</p>
-            )}
-
-            {pending.choosing && (
-              <ul className="gs-choices">
+      {pending && (
+        <Sheet
+          title={chosen && !pending.choosing ? chosen.description : 'Which line is this pack?'}
+          subtitle={chosen && !pending.choosing ? `${chosen.pack_size ? `Pack ${chosen.pack_size} · ` : ''}${chosen.qty_received ?? 0} of ${chosen.qty_ordered} received` : undefined}
+          onClose={skip}
+        >
+          {pending.choosing ? (
+            <>
+              {pending.lookup.lineIds.length > 1 && <p className="gr-sheet-text">This barcode fits {pending.lookup.lineIds.length} lines.</p>}
+              <ul className="gi-options gr-choices">
                 {candidates.map(l => (
                   <li key={l.id}>
                     <button type="button" className="gi-option" aria-pressed={pending.lineId === l.id}
                       onClick={() => setPending({ ...pending, lineId: l.id, choosing: false })}>
                       <span className="gs-choice-name">{l.description}</span>
-                      <small>{l.pack_size ? `${l.pack_size} · ` : ''}{received[l.id] ?? 0}/{l.qty_ordered}</small>
+                      <small className="tnum">{l.qty_received ?? 0} of {l.qty_ordered}</small>
                     </button>
                   </li>
                 ))}
               </ul>
-            )}
-
-            {chosen && !pending.choosing && (
-              <div className="gs-actions">
+              <button type="button" className="gi-btn gi-btn-quiet gi-btn-block" onClick={skip}>Skip this pack</button>
+            </>
+          ) : chosen ? (
+            <>
+              <p className="gr-sheet-text">
+                {pending.lookup.source === 'dmd' ? `Suggested from NHS dm+d (${pending.lookup.dmdName}). ` : pending.lookup.source === 'invoice' ? 'Matched by the barcode printed on the invoice. ' : ''}
+                Check the product and pack size match, then record. The barcode is saved for next time.
+              </p>
+              {exp?.shortDated && <p className="gr-sheet-text"><i className="gi-dot is-warn" /> Short-dated, expires {exp.label}.</p>}
+              {!chosen.pack_size && <p className="gi-error">This line has no pack size on the invoice. Check the invoice before receiving by barcode.</p>}
+              <div className="gr-sheet-row">
                 {!pending.pack.serial && (
-                  <Stepper label="Packs" value={pending.quantity} min={1} max={Math.max(1, chosen.qty_ordered - (received[chosen.id] ?? 0))}
+                  <Stepper label="Packs" value={pending.quantity} min={1} max={Math.max(1, chosen.qty_ordered - (chosen.qty_received ?? 0))}
                     onChange={n => setPending({ ...pending, quantity: n })} />
                 )}
                 <button type="button" className="gi-btn gi-btn-primary" disabled={busy || !chosen.pack_size} onClick={() => void record(pending, true)}>
                   {busy ? 'Saving…' : `Record ${pending.quantity} ${pending.quantity === 1 ? 'pack' : 'packs'}`}
                 </button>
               </div>
-            )}
-            {chosen && !pending.choosing && pending.linear && (
-              // A plain (linear) barcode names the product only; batch and expiry can be typed from the pack.
-              <details className="gs-extra">
-                <summary>Add batch and expiry</summary>
-                <div className="gs-extra-fields">
-                  <label className="gi-field">Batch<input className="gi-input" maxLength={100} value={pending.pack.batch ?? ''}
-                    onChange={e => setPending({ ...pending, pack: { ...pending.pack, batch: e.target.value || undefined } })} /></label>
-                  <label className="gi-field">Expiry<input className="gi-input" type="date" value={pending.pack.expiry ?? ''}
-                    onChange={e => setPending({ ...pending, pack: { ...pending.pack, expiry: e.target.value || undefined } })} /></label>
-                </div>
-              </details>
-            )}
-            {chosen && !chosen.pack_size &&<p className="gi-error">This line has no pack size on the invoice. Check the invoice before receiving by barcode.</p>}
-            <div className="gs-secondary">
-              {chosen && !pending.choosing && <button type="button" className="gs-text-btn" onClick={() => setPending({ ...pending, choosing: true })}>Choose another line</button>}
-              {pending.lookup.lineIds.length === 0 && !pending.choosing && <button type="button" className="gs-text-btn" onClick={() => setPending({ ...pending, choosing: true })}>Choose a line</button>}
-              <button type="button" className="gs-text-btn" onClick={() => setPending(null)}>Skip this pack</button>
-            </div>
-          </div>
-        )}
-
-        <ul className="gs-results" aria-live="polite">
-          {results.map(r => (
-            <li key={r.key} className={`is-${r.tone}`}>
-              <span className="gs-result-mark" aria-hidden="true">{r.tone === 'good' ? <CheckIcon /> : '!'}</span>
-              <span className="gs-result-body">
-                <strong>{r.title}</strong>
-                {r.detail && <small>{r.detail}</small>}
-                {r.mappingLineId && <button type="button" className="gs-text-btn" disabled={busy} onClick={() => void removeMapping(r)}>Remove the old saved barcode (owner or admin)</button>}
-              </span>
-            </li>
-          ))}
-          {!results.length && !pending && <li className="gs-empty">Each pack you scan is counted here.</li>}
-        </ul>
-
-        <form className="gs-manual" onSubmit={e => { e.preventDefault(); last.current = { text: '', at: 0 }; void handle(typed); setTyped(''); }}>
-          <input ref={manual} className="gi-input" value={typed} onChange={e => setTyped(e.target.value)} placeholder="Type or scan a barcode"
-            autoComplete="off" inputMode="text" aria-label="Barcode" disabled={!!pending} />
-          <button type="submit" className="gi-btn gi-btn-quiet" disabled={!typed.trim() || !!pending}>Add</button>
-        </form>
-        <p className="gi-note">Pack names and barcodes from the NHS Dictionary of Medicines and Devices (dm+d), Open Government Licence v3.0.</p>
-      </div>
-    </div>
+              {pending.linear && (
+                // A plain (linear) barcode names the product only; batch and expiry can be typed from the pack.
+                <details className="gs-extra">
+                  <summary>Add batch and expiry</summary>
+                  <div className="gs-extra-fields">
+                    <label className="gi-field">Batch<input className="gi-input" maxLength={100} value={pending.pack.batch ?? ''}
+                      onChange={e => setPending({ ...pending, pack: { ...pending.pack, batch: e.target.value || undefined } })} /></label>
+                    <label className="gi-field">Expiry<input className="gi-input" type="date" value={pending.pack.expiry ?? ''}
+                      onChange={e => setPending({ ...pending, pack: { ...pending.pack, expiry: e.target.value || undefined } })} /></label>
+                  </div>
+                </details>
+              )}
+              <div className="gs-secondary">
+                <button type="button" className="gs-text-btn" onClick={() => setPending({ ...pending, choosing: true })}>Choose another line</button>
+                <button type="button" className="gs-text-btn" onClick={skip}>Skip this pack</button>
+              </div>
+            </>
+          ) : null}
+        </Sheet>
+      )}
+    </section>
   );
 }

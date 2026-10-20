@@ -13,3 +13,15 @@
 .as-manual .gi-input { flex: 1; min-width: 0; }
 .as-retry { margin: 0 20px 18px; width: calc(100% - 40px); }
 @media (max-width: 768px) { .as-title { font-size: 24px; } }
+
+/* After the scan: what was opened, then one action. */
+.as-opened { padding: 18px 20px 20px; display: grid; gap: 14px; }
+.as-opened-label { margin: 0; font-size: 13px; color: var(--gi-good); font-weight: 600; }
+.as-delivery { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 14px; align-items: start; }
+.as-delivery .gi-badge { width: 44px; height: 44px; border-radius: 12px; }
+.as-delivery .gi-badge > b { font-size: 12px; }
+.as-delivery-main h2 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
+.as-delivery-main p { margin: 4px 0 0; font-size: 15px; color: var(--gi-ink); }
+.as-delivery-main .as-delivery-sub { font-size: 13.5px; color: var(--gi-ink-soft); }
+.as-rows { padding: 0; margin: 0 -8px; }
+.as-opened-actions { display: grid; gap: 8px; }

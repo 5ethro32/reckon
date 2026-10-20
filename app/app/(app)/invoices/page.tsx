@@ -74,7 +74,9 @@ export default async function InvoicesPage({ searchParams }: { searchParams: Sea
       <div className="page-header">
         <div>
           <h1 className="page-header-title">Invoices</h1>
-          <p className="page-header-subtitle">Every invoice, and how far its delivery has been checked.</p>
+          <p className="page-header-subtitle">{status === 'open'
+            ? 'Deliveries still to check. Open one to scan its packs or tick its lines.'
+            : 'Every invoice, and how far its delivery has been checked.'}</p>
         </div>
         <Link href="/upload" className="btn btn-secondary">Upload invoices</Link>
       </div>

@@ -1,28 +1,38 @@
 'use client';
 
 /**
- * Checking a delivery against its invoice.
+ * Receiving a delivery: one screen for scanning packs and ticking lines.
  *
- *  - One tap on a line's circle marks it received in full.
- *  - Its menu records short, damaged, returned or not received, with a
- *    stepper for quantities, so the common cases need no typing.
- *  - Every change saves at once (PATCH /api/invoice-lines/[id]); the row shows
- *    saving, saved or failed, and a failed save rolls back.
- *  - "Scan packs" opens the camera; scans add to received quantities.
- *  - When lines have problems, "Raise claim" posts to /api/credits and opens
- *    the email, as before. The API reuses an open claim for the same lines.
+ *  - The progress card counts lines checked and packs received. Its main
+ *    action opens the camera strip; "Tick all received" is for people who
+ *    count by eye rather than scan.
+ *  - The camera strip sits above the line list and can be made smaller or
+ *    closed. A scanned pack counts up on its own line and in the totals.
+ *    Packs not on the invoice are listed separately.
+ *  - One tap on a line's circle marks it received in full. Tapping the line
+ *    records short, damaged, returned or not received, with a stepper for
+ *    quantities. Every change saves at once (PATCH /api/invoice-lines/[id]);
+ *    a failed save rolls back.
+ *  - When nothing is left to check, the finish bar says what happens next:
+ *    close the delivery, or raise a claim for the lines short (POST
+ *    /api/credits, which reuses an open claim for the same lines). Lines
+ *    scanned only in part are recorded as short first.
+ *
+ * qty_ordered is the invoiced quantity; the screen calls it "invoiced".
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { CheckIcon, ScanIcon, Sheet, Stepper, Track } from '@/components/goods-in/ui';
-import { money } from '@/lib/goods-in/supplier';
-import PackReceiving from './pack-receiving';
+import { money, supplierName } from '@/lib/goods-in/supplier';
+import { lineState, linesToTick, receivingProgress, type LineState } from '@/lib/receiving-progress';
+import PackReceiving, { type StrayScan } from './pack-receiving';
 
 type DamageDisposition = 'returning' | 'disposed' | 'awaiting' | null;
 type ReturnDisposition = 'damaged' | 'wrong_product' | 'expired' | 'over_ordered' | 'other' | null;
 
-type Line = {
+export type Line = {
   id: string;
   line_number: number;
   supplier_sku: string;
@@ -40,10 +50,10 @@ type Line = {
   notes: string | null;
   damage_disposition?: DamageDisposition;
   return_disposition?: ReturnDisposition;
+  credit_request_id?: string | null;
   credited_via_statement_line_id?: string | null;
 };
 
-type LineStatus = 'pending' | 'partial' | 'full' | 'short' | 'damaged' | 'returned' | 'none';
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 type Patch = {
   flags?: string[];
@@ -54,16 +64,6 @@ type Patch = {
   notes?: string | null;
 };
 
-function getStatus(line: Line): LineStatus {
-  if (line.flags.includes('not_received')) return 'none';
-  if (line.flags.includes('returned')) return 'returned';
-  if (line.flags.includes('damaged')) return 'damaged';
-  if (line.flags.includes('short')) return 'short';
-  if (line.qty_received === null) return 'pending';
-  if (line.qty_received !== line.qty_ordered) return 'partial';
-  return 'full';
-}
-
 const dispositionLabels: Record<Exclude<DamageDisposition, null>, string> = {
   returning: 'Returning', disposed: 'Disposed of', awaiting: 'Not decided',
 };
@@ -71,27 +71,35 @@ const returnLabels: Record<Exclude<ReturnDisposition, null>, string> = {
   damaged: 'Damaged', wrong_product: 'Wrong product', expired: 'Short-dated or expired', over_ordered: 'Over-ordered', other: 'Other',
 };
 
-function statusText(line: Line, status: LineStatus): { text: string; tone: 'good' | 'warn' | 'ink' | 'open' } {
-  const of = `${line.qty_received ?? 0} of ${line.qty_ordered}`;
+function statusText(line: Line, status: LineState): { text: string; tone: 'good' | 'warn' | 'ink' | 'open' } {
   switch (status) {
     case 'full': return { text: 'Received', tone: 'good' };
-    case 'partial': return { text: `${of} scanned`, tone: 'ink' };
-    case 'short': return { text: `Short · ${of} received`, tone: 'warn' };
+    case 'partial': return { text: 'Part received', tone: 'ink' };
+    case 'short': return { text: 'Short', tone: 'warn' };
     case 'damaged': return { text: `Damaged · ${dispositionLabels[line.damage_disposition ?? 'awaiting'].toLowerCase()}`, tone: 'warn' };
     case 'returned': return { text: `Returned ${line.qty_returned ?? line.qty_ordered}${line.return_disposition ? ` · ${returnLabels[line.return_disposition].toLowerCase()}` : ''}`, tone: 'warn' };
     case 'none': return { text: 'Not received', tone: 'warn' };
-    default: return { text: 'Not checked', tone: 'open' };
+    default: return { text: 'To check', tone: 'open' };
   }
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** Runs saves a few at a time, so ticking a whole delivery does not fire forty requests at once. */
+async function inBatches<T>(items: T[], size: number, run: (item: T) => Promise<void>) {
+  for (let i = 0; i < items.length; i += size) await Promise.all(items.slice(i, i + size).map(run));
 }
 
 export default function LinesEditor({
   invoiceId,
   invoiceNumber,
+  supplier,
   initialLines,
   startScanning = false,
 }: {
   invoiceId: string;
   invoiceNumber: string;
+  supplier: string;
   initialLines: Line[];
   startScanning?: boolean;
 }) {
@@ -102,6 +110,12 @@ export default function LinesEditor({
   const [creditError, setCreditError] = useState('');
   const [openLineId, setOpenLineId] = useState<string | null>(null);
   const [scanning, setScanning] = useState(startScanning);
+  const [compact, setCompact] = useState(false);
+  const [strays, setStrays] = useState<StrayScan[]>([]);
+  const [hit, setHit] = useState<{ id: string; n: number } | null>(null);
+  const [tickAll, setTickAll] = useState<'closed' | 'confirm' | 'saving'>('closed');
+  const [bulkError, setBulkError] = useState('');
+  const rows = useRef(new Map<string, HTMLLIElement>());
 
   // "Saved" fades back to idle after a moment.
   useEffect(() => {
@@ -113,31 +127,32 @@ export default function LinesEditor({
     return () => clearTimeout(timer);
   }, [saveStates]);
 
-  /** PATCH a line. Optimistic, rolled back on error. */
-  async function patchLine(lineId: string, patch: Patch) {
+  /** PATCH a line. Optimistic, rolled back on error. Resolves true when saved. */
+  const patchLine = useCallback(async (lineId: string, patch: Patch): Promise<boolean> => {
     setSaveStates(prev => ({ ...prev, [lineId]: 'saving' }));
-    setLines(prev => prev.map(l => (l.id === lineId ? { ...l, ...patch } : l)));
+    let before: Line | undefined;
+    setLines(prev => prev.map(l => { if (l.id !== lineId) return l; before = l; return { ...l, ...patch } as Line; }));
     try {
       const res = await fetch(`/api/invoice-lines/${lineId}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setSaveStates(prev => ({ ...prev, [lineId]: 'saved' }));
-      router.refresh();
+      return true;
     } catch (err) {
       console.error('Save failed', err);
       setSaveStates(prev => ({ ...prev, [lineId]: 'error' }));
-      const original = initialLines.find(l => l.id === lineId);
-      if (original) setLines(prev => prev.map(l => (l.id === lineId ? original : l)));
+      if (before) { const restore = before; setLines(prev => prev.map(l => (l.id === lineId ? restore : l))); }
+      return false;
     }
-  }
+  }, []);
 
   /** Set a line's state: flags, received and returned quantities in one save.
    *  Leaving damaged or returned clears that state's follow-up. */
-  async function updateStatus(lineId: string, status: LineStatus, qtyReceived?: number) {
-    if (status === 'pending' || status === 'partial') return;
+  async function updateStatus(lineId: string, status: LineState, qtyReceived?: number): Promise<boolean> {
+    if (status === 'pending' || status === 'partial') return false;
     const line = lines.find(l => l.id === lineId);
-    if (!line) return;
+    if (!line) return false;
     const flags: string[] = status === 'full' ? [] : [status === 'none' ? 'not_received' : status];
     // What the pharmacy holds after any return: full and damaged keep everything,
     // returned and not received hold none, short holds what was counted.
@@ -146,29 +161,41 @@ export default function LinesEditor({
     const patch: Patch = { flags, qty_received: qty, qty_returned: status === 'returned' ? line.qty_ordered : null };
     if (status !== 'damaged') patch.damage_disposition = null;
     if (status !== 'returned') patch.return_disposition = null;
-    await patchLine(lineId, patch);
+    return patchLine(lineId, patch);
   }
 
-  const counts = useMemo(() => {
-    let full = 0, pending = 0, partial = 0, problems = 0;
-    for (const l of lines) {
-      const s = getStatus(l);
-      if (s === 'full') full++; else if (s === 'pending') pending++; else if (s === 'partial') partial++; else problems++;
-    }
-    return { full, pending, partial, problems, checked: lines.length - pending - partial };
-  }, [lines]);
+  const progress = useMemo(() => receivingProgress(lines), [lines]);
+  const toTick = useMemo(() => linesToTick(lines), [lines]);
 
-  const exceptionLines = lines.filter(l => l.flags.length > 0);
-  const exceptionTotal = exceptionLines.reduce((sum, l) => sum + Number(l.gross), 0);
+  async function tickAllReceived() {
+    setTickAll('saving');
+    setBulkError('');
+    const ids = [...toTick];
+    let failed = 0;
+    await inBatches(ids, 4, async id => {
+      const line = lines.find(l => l.id === id);
+      if (!line) return;
+      const ok = await patchLine(id, { flags: [], qty_received: line.qty_ordered, qty_returned: null, damage_disposition: null, return_disposition: null });
+      if (!ok) failed++;
+    });
+    setTickAll('closed');
+    if (failed) setBulkError(`${plural(failed, 'line')} did not save. Tick ${failed === 1 ? 'it' : 'them'} again.`);
+  }
 
-  async function generateCredit() {
-    if (exceptionLines.length === 0) return;
+  async function raiseClaim() {
+    const ids = progress.claimLineIds;
+    if (ids.length === 0) return;
     setCreditState('submitting');
     setCreditError('');
     try {
+      // Lines scanned only in part are short: record that before claiming.
+      for (const id of progress.partialLineIds) {
+        const line = lines.find(l => l.id === id);
+        if (line && !(await updateStatus(id, 'short', line.qty_received ?? 0))) throw new Error('A line could not be recorded as short. Try again.');
+      }
       const res = await fetch('/api/credits', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoice_ids: [invoiceId], invoice_line_ids: exceptionLines.map(l => l.id) }),
+        body: JSON.stringify({ invoice_ids: [invoiceId], invoice_line_ids: ids }),
       });
       if (res.status === 404) { setCreditState('unavailable'); return; }
       if (!res.ok) {
@@ -177,6 +204,7 @@ export default function LinesEditor({
         throw new Error(msg);
       }
       const result = (await res.json()) as { credit_request_id: string; mailto_url: string; reused?: boolean; auto_resolved?: boolean };
+      setLines(prev => prev.map(l => (ids.includes(l.id) ? { ...l, credit_request_id: result.credit_request_id } : l)));
       if (!result.auto_resolved) window.location.assign(result.mailto_url);
       router.refresh();
       setCreditState('idle');
@@ -187,47 +215,104 @@ export default function LinesEditor({
     }
   }
 
+  const onRecorded = useCallback((lineId: string, received: number) => {
+    setLines(prev => prev.map(l => (l.id === lineId ? { ...l, qty_received: received } : l)));
+    setHit(h => ({ id: lineId, n: (h?.n ?? 0) + 1 }));
+    // Bring the line into view between the camera strip and the bottom bar, without moving if it is already there.
+    const row = rows.current.get(lineId);
+    if (!row) return;
+    const r = row.getBoundingClientRect();
+    const top = (document.querySelector('.gr-strip')?.getBoundingClientRect().bottom ?? 0) + 8;
+    const bottom = window.innerHeight - (window.matchMedia('(max-width: 768px)').matches ? 100 : 16);
+    const by = r.top < top ? r.top - top : r.bottom > bottom ? r.bottom - bottom : 0;
+    if (by) window.scrollBy({ top: by, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  }, []);
+  const onStray = useCallback((gtin: string, name: string | null) => {
+    setStrays(prev => {
+      const found = prev.find(s => s.gtin === gtin);
+      if (found) return prev.map(s => (s.gtin === gtin ? { ...s, count: s.count + 1, at: Date.now(), name: name ?? s.name } : s));
+      return [{ key: crypto.randomUUID(), gtin, name, at: Date.now(), count: 1 }, ...prev];
+    });
+  }, []);
+  const onStrayResolved = useCallback((gtin: string) => setStrays(prev => prev.filter(s => s.gtin !== gtin)), []);
+
   const closeSheet = useCallback(() => setOpenLineId(null), []);
   const closeScanner = useCallback(() => {
     setScanning(false);
     // Drop ?scan=1 so a refresh does not reopen the camera.
     if (window.location.search.includes('scan=')) window.history.replaceState(null, '', window.location.pathname);
-    router.refresh();
-  }, [router]);
+  }, []);
 
   const openLine = lines.find(l => l.id === openLineId) ?? null;
   const total = lines.length;
-  const done = total > 0 && counts.pending === 0 && counts.partial === 0;
+  const checking = progress.stage === 'checking';
+  const who = supplierName(supplier);
+  const claimLines = plural(progress.claimLineIds.length, 'line');
+  const claimTitle = progress.shortLines >= progress.claimLineIds.length ? `${claimLines} short`
+    : progress.shortLines === 0 ? `${claimLines} damaged or returned`
+    : `${claimLines} short or damaged`;
 
   return (
     <div className="gx-check">
       <section className="gi-card gx-progress" aria-label="Checking progress">
         <div className="gx-progress-text">
-          <strong className="tnum">{counts.checked} of {total} lines checked</strong>
-          <span>
-            {done && counts.problems === 0 ? 'Everything received'
-              : counts.problems ? <span className="gi-status"><i className="gi-dot is-warn" />{counts.problems} {counts.problems === 1 ? 'problem' : 'problems'}</span> : null}
-          </span>
+          <strong className="tnum">{progress.checked} of {total} lines checked</strong>
+          <span className="tnum">{progress.packsReceived} of {progress.packs} packs received</span>
         </div>
-        <Track total={total} good={counts.full} warn={counts.problems} ink={counts.partial} label={`${counts.full} received, ${counts.problems} with problems, ${counts.pending + counts.partial} to check`} />
-        <button type="button" className="gi-btn gi-btn-primary gx-scan-btn" onClick={() => setScanning(true)} disabled={!total}>
-          <ScanIcon />Scan packs
-        </button>
+        <Track total={total} good={progress.full} warn={progress.problems} ink={progress.partial}
+          label={`${progress.full} received, ${progress.problems} with problems, ${progress.pending + progress.partial} to check`} />
+        {(!scanning || checking) && (
+          <div className="gx-progress-actions">
+            {!scanning && (
+              <button type="button" className={`gi-btn ${checking ? 'gi-btn-primary' : 'gi-btn-quiet'} gx-scan-btn`} onClick={() => { setScanning(true); setCompact(false); }} disabled={!total}>
+                <ScanIcon />Scan packs
+              </button>
+            )}
+            {checking && (
+              <button type="button" className="gi-btn gi-btn-quiet gx-tickall-btn" onClick={() => { setBulkError(''); setTickAll('confirm'); }}>
+                {progress.checked + progress.partial > 0 ? 'Tick the rest received' : 'Tick all received'}
+              </button>
+            )}
+          </div>
+        )}
+        {bulkError && <p className="gi-error" role="alert">{bulkError}</p>}
       </section>
 
-      <section className="gi-card gx-lines" aria-label="Invoice lines">
+      {scanning && (
+        <PackReceiving
+          invoiceId={invoiceId}
+          invoiceNumber={invoiceNumber}
+          lines={lines}
+          packs={progress.packs}
+          packsReceived={progress.packsReceived}
+          compact={compact}
+          onToggleCompact={() => setCompact(c => !c)}
+          onClose={closeScanner}
+          onRecorded={onRecorded}
+          onStray={onStray}
+          onStrayResolved={onStrayResolved}
+        />
+      )}
+
+      <section className="gi-card gx-lines" aria-labelledby="gx-lines-title">
+        <div className="gi-card-head gx-lines-head">
+          <h2 id="gx-lines-title">Lines</h2>
+          <span className="gi-aside">Tap a line to record short or damaged</span>
+        </div>
         <div className="gx-thead gi-desk" aria-hidden="true">
-          <span /><span>Product</span><span>Code</span><span className="num">Qty</span><span className="num">Net</span><span>Status</span><span />
+          <span /><span>Product</span><span>Code</span><span className="num">Received</span><span className="num">Net</span><span>Status</span><span />
         </div>
         <ul className="gx-list">
           {lines.map(line => (
             <LineRow
               key={line.id}
+              ref={el => { if (el) rows.current.set(line.id, el); else rows.current.delete(line.id); }}
               line={line}
-              status={getStatus(line)}
+              status={lineState(line)}
+              hit={hit?.id === line.id ? hit.n : 0}
               saveState={saveStates[line.id] ?? 'idle'}
               onTick={() => {
-                const s = getStatus(line);
+                const s = lineState(line);
                 if (s === 'pending' || s === 'partial') void updateStatus(line.id, 'full');
                 else setOpenLineId(line.id);
               }}
@@ -238,84 +323,146 @@ export default function LinesEditor({
         {!total && <p className="gi-empty" style={{ paddingTop: 16 }}>No lines were read from this invoice. Check the upload, or re-upload a clearer copy.</p>}
       </section>
 
-      {(exceptionLines.length > 0 || done) && (
-        <div className={`gx-finish${exceptionLines.length ? '' : ' is-done'}`} role="status">
-          {exceptionLines.length > 0 ? (
-            <>
-              <span className="gx-finish-text">
-                <strong>{exceptionLines.length} {exceptionLines.length === 1 ? 'problem' : 'problems'}</strong>
-                <span className="tnum">{money(exceptionTotal)}{done ? ' on these lines' : ` · ${counts.pending + counts.partial} to check`}</span>
-                {creditState === 'unavailable' && <span className="gi-error">Claims are not set up for this workspace yet.</span>}
-                {creditState === 'error' && <span className="gi-error">{creditError}</span>}
-              </span>
-              <button type="button" className="gi-btn gi-btn-primary" onClick={generateCredit}
-                disabled={creditState === 'submitting' || creditState === 'unavailable'}>
-                {creditState === 'submitting' ? 'Raising…' : 'Raise claim'}
-              </button>
-            </>
-          ) : (
-            <span className="gx-finish-text">
-              <strong className="gx-good"><CheckIcon className="gx-finish-icon" />All received</strong>
-              <span>Every line matches the invoice.</span>
-            </span>
-          )}
+      {strays.length > 0 && (
+        <section className="gi-card gx-strays" aria-labelledby="gx-strays-title">
+          <div className="gi-card-head">
+            <h2 id="gx-strays-title">Not on this invoice</h2>
+            <span className="gi-aside">{plural(strays.reduce((s, x) => s + x.count, 0), 'pack')}</span>
+          </div>
+          <p className="gi-empty gx-strays-note">Set these aside. They are not on {invoiceNumber}, so they are not counted. Check them with {who}.</p>
+          <ul className="gx-stray-list">
+            {strays.map(s => (
+              <li key={s.key}>
+                <span className="gx-stray-mark" aria-hidden="true">!</span>
+                <span className="gx-stray-body">
+                  <strong>{s.name ?? 'Unknown pack'}</strong>
+                  <span className="tnum">Barcode {s.gtin}</span>
+                </span>
+                <span className="gx-stray-count tnum">{s.count > 1 ? `×${s.count}` : ''}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {progress.stage === 'complete' && (
+        <div className="gx-finish is-done" role="status">
+          <span className="gx-finish-text">
+            <strong className="gx-good"><CheckIcon className="gx-finish-icon" />All received</strong>
+            <span>Every line matches the invoice.</span>
+          </span>
+          <Link href="/dashboard" className="gi-btn gi-btn-primary">Close delivery</Link>
+        </div>
+      )}
+      {progress.stage === 'short' && progress.claimLineIds.length > 0 && !progress.claimRaised && (
+        <div className="gx-finish" role="status">
+          <span className="gx-finish-text">
+            <strong>{claimTitle}</strong>
+            <span className="tnum">{money(progress.claimValue)} to claim from {who}</span>
+            {creditState === 'unavailable' && <span className="gi-error">Claims are not set up for this workspace yet.</span>}
+            {creditState === 'error' && <span className="gi-error">{creditError}</span>}
+          </span>
+          <button type="button" className="gi-btn gi-btn-primary" onClick={raiseClaim}
+            disabled={creditState === 'submitting' || creditState === 'unavailable'}>
+            {creditState === 'submitting' ? 'Raising…' : 'Raise a claim'}
+          </button>
+        </div>
+      )}
+      {progress.stage === 'short' && (progress.claimRaised || progress.claimLineIds.length === 0) && (
+        <div className="gx-finish is-settled" role="status">
+          <span className="gx-finish-text">
+            <strong>{progress.claimRaised ? 'Claim raised' : 'Already credited'}</strong>
+            <span>{progress.claimRaised ? <>{plural(progress.claimLineIds.length, 'line')} · follow it up in <Link href="/credits" className="gx-inline-link">Claims</Link></> : 'The supplier statement shows a credit for these lines.'}</span>
+          </span>
+          <Link href="/dashboard" className="gi-btn gi-btn-primary">Close delivery</Link>
         </div>
       )}
 
       {openLine && (
         <LineSheet
           line={openLine}
-          status={getStatus(openLine)}
+          status={lineState(openLine)}
           onClose={closeSheet}
-          onStatus={(s, q) => updateStatus(openLine.id, s, q)}
-          onPatch={p => patchLine(openLine.id, p)}
+          onStatus={async (s, q) => { await updateStatus(openLine.id, s, q); }}
+          onPatch={async p => { await patchLine(openLine.id, p); }}
           onNotesChange={n => setLines(prev => prev.map(l => (l.id === openLine.id ? { ...l, notes: n } : l)))}
         />
       )}
 
-      {scanning && <PackReceiving invoiceId={invoiceId} invoiceNumber={invoiceNumber} lines={lines} onClose={closeScanner} />}
+      {tickAll !== 'closed' && (
+        <Sheet title={progress.checked + progress.partial > 0 ? 'Tick the rest received?' : 'Tick all received?'} onClose={() => { if (tickAll !== 'saving') setTickAll('closed'); }}>
+          <p className="gr-sheet-text">
+            Marks {plural(toTick.length, 'line')} received in full, as invoiced. Do this once the delivery is counted.
+            {progress.problems > 0 ? ` The ${plural(progress.problems, 'line')} with a problem stay as they are.` : ''}
+          </p>
+          <div className="gr-sheet-actions">
+            <button type="button" className="gi-btn gi-btn-primary gi-btn-block" disabled={tickAll === 'saving'} onClick={() => void tickAllReceived()}>
+              {tickAll === 'saving' ? 'Saving…' : `Tick ${plural(toTick.length, 'line')}`}
+            </button>
+            <button type="button" className="gi-btn gi-btn-quiet gi-btn-block" disabled={tickAll === 'saving'} onClick={() => setTickAll('closed')}>Cancel</button>
+          </div>
+        </Sheet>
+      )}
     </div>
   );
 }
 
-function LineRow({ line, status, saveState, onTick, onMore }: {
-  line: Line; status: LineStatus; saveState: SaveState; onTick: () => void; onMore: () => void;
+/** The line's circle: empty to check, an arc while packs are scanned, filled when received. */
+function TickMark({ status, received, invoiced }: { status: LineState; received: number; invoiced: number }) {
+  if (status === 'full') return <span className="gx-tick-mark"><CheckIcon /></span>;
+  if (status !== 'pending' && status !== 'partial') return <span className="gx-tick-mark"><b aria-hidden="true">!</b></span>;
+  const r = 11.5, c = 2 * Math.PI * r;
+  const share = status === 'partial' && invoiced > 0 ? Math.min(1, received / invoiced) : 0;
+  return (
+    <span className="gx-tick-mark">
+      {share > 0 && (
+        <svg className="gx-arc" viewBox="0 0 26 26" aria-hidden="true">
+          <circle cx="13" cy="13" r={r} strokeDasharray={`${share * c} ${c}`} />
+        </svg>
+      )}
+    </span>
+  );
+}
+
+function LineRow({ ref, line, status, hit, saveState, onTick, onMore }: {
+  ref: (el: HTMLLIElement | null) => void;
+  line: Line; status: LineState; hit: number; saveState: SaveState; onTick: () => void; onMore: () => void;
 }) {
   const st = statusText(line, status);
   const problem = line.flags.length > 0;
   const tickClass = status === 'full' ? 'is-good' : problem ? 'is-warn' : status === 'partial' ? 'is-part' : '';
   const tickLabel = status === 'pending' || status === 'partial' ? `Mark ${line.description} received in full` : `Change ${line.description}`;
+  const received = line.qty_received ?? 0;
   return (
-    <li className={`gx-row${problem ? ' is-problem' : ''}`}>
+    <li ref={ref} className={`gx-row${problem ? ' is-problem' : ''}`} data-state={status}>
+      {hit > 0 && <span className="gx-hit" key={hit} aria-hidden="true" />}
       <button type="button" className={`gx-tick ${tickClass}`} onClick={onTick} aria-label={tickLabel} disabled={saveState === 'saving'}>
-        <span className="gx-tick-mark">
-          {status === 'full' ? <CheckIcon /> : problem ? <b aria-hidden="true">!</b> : null}
-        </span>
+        <TickMark status={status} received={received} invoiced={line.qty_ordered} />
       </button>
       <button type="button" className="gx-body" onClick={onMore}>
         <span className="gx-name">{line.description}</span>
         <span className="gx-meta">
-          {line.pack_size ? `Pack ${line.pack_size} · ` : ''}{line.qty_ordered} ordered
-          <span className="gi-phone"> · {money(Number(line.net))}</span>
+          {line.pack_size ? `Pack ${line.pack_size} · ` : ''}{line.qty_ordered} invoiced
+          {status !== 'pending' && status !== 'full' && <span className="gi-phone"> · <span className="gi-status gx-inline-status"><i className={`gi-dot is-${st.tone}`} />{st.text}</span></span>}
+          {line.credited_via_statement_line_id && <span className="gx-credited gi-phone">Credited</span>}
         </span>
-        {(status !== 'pending' && status !== 'full' || line.credited_via_statement_line_id) && <span className="gx-meta gx-state gi-phone">
-          <i className={`gi-dot is-${st.tone}`} />{st.text}
-          {line.credited_via_statement_line_id && <span className="gx-credited">Credited</span>}
-        </span>}
       </button>
       <span className="gx-code gi-desk tnum">{line.supplier_sku}</span>
-      <span className="gx-qty gi-desk tnum">{line.qty_received ?? '–'} <small>of {line.qty_ordered}</small></span>
+      <span className={`gx-qty tnum is-${status}`} aria-label={`${received} of ${line.qty_ordered} received`}>
+        <span className={status === 'pending' ? 'gx-qty-none' : undefined}>{received}</span><small> of {line.qty_ordered}</small>
+      </span>
       <span className="gx-net gi-desk tnum">{money(Number(line.net))}</span>
       <span className="gx-status gi-desk">
         <span className="gi-status"><i className={`gi-dot is-${st.tone}`} />{st.text}</span>
         {line.credited_via_statement_line_id && <span className="gx-credited" title="A credit for this line has been matched on a supplier statement.">Credited</span>}
       </span>
-      <span className="gx-side">
+      <span className="gx-side gi-desk">
         <SaveMark state={saveState} />
         <button type="button" className="gx-more" onClick={onMore} aria-label={`Options for ${line.description}`}>
           <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r="1.4" /><circle cx="8" cy="8" r="1.4" /><circle cx="12.5" cy="8" r="1.4" /></svg>
         </button>
       </span>
+      {saveState === 'error' && <span className="gx-save is-error gi-phone gx-row-error" role="alert">Not saved</span>}
     </li>
   );
 }
@@ -330,13 +477,13 @@ function SaveMark({ state }: { state: SaveState }) {
 type Choice = 'full' | 'short' | 'damaged' | 'returned' | 'none';
 
 function LineSheet({ line, status, onClose, onStatus, onPatch, onNotesChange }: {
-  line: Line; status: LineStatus; onClose: () => void;
-  onStatus: (s: LineStatus, qty?: number) => Promise<void>;
+  line: Line; status: LineState; onClose: () => void;
+  onStatus: (s: LineState, qty?: number) => Promise<void>;
   onPatch: (p: Patch) => Promise<void>;
   onNotesChange: (n: string) => void;
 }) {
   const [expanded, setExpanded] = useState<Choice | null>(status === 'short' || status === 'damaged' || status === 'returned' ? status : null);
-  const [shortQty, setShortQty] = useState(status === 'short' ? line.qty_received ?? 0 : Math.max(0, line.qty_ordered - 1));
+  const [shortQty, setShortQty] = useState(status === 'short' || status === 'partial' ? Math.min(line.qty_received ?? 0, Math.max(0, line.qty_ordered - 1)) : Math.max(0, line.qty_ordered - 1));
   const [returnQty, setReturnQty] = useState(line.qty_returned ?? line.qty_ordered);
 
   const options: { key: Choice; label: string }[] = [
@@ -355,7 +502,7 @@ function LineSheet({ line, status, onClose, onStatus, onPatch, onNotesChange }: 
   }
 
   return (
-    <Sheet title={line.description} subtitle={`${line.pack_size ? `Pack ${line.pack_size} · ` : ''}${line.qty_ordered} ordered · ${money(Number(line.net))} net · ${line.supplier_sku}`} onClose={onClose}>
+    <Sheet title={line.description} subtitle={`${line.pack_size ? `Pack ${line.pack_size} · ` : ''}${line.qty_ordered} invoiced · ${line.qty_received ?? 0} received · ${money(Number(line.net))} net · ${line.supplier_sku}`} onClose={onClose}>
       <ul className="gi-options">
         {options.map(o => (
           <li key={o.key}>
@@ -409,7 +556,7 @@ function LineSheet({ line, status, onClose, onStatus, onPatch, onNotesChange }: 
       )}
       <label className="gi-field" style={{ marginTop: 16 }}>
         Note
-        <input className="gi-input" type="text" value={line.notes ?? ''} placeholder="For example: wet packaging, expires Mar 27"
+        <input className="gi-input" type="text" value={line.notes ?? ''} placeholder="For example wet packaging, expires Mar 27"
           onChange={e => onNotesChange(e.target.value)}
           onBlur={e => void onPatch({ notes: e.target.value || null })}
           onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />

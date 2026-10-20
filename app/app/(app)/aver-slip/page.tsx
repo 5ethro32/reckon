@@ -10,7 +10,7 @@ export default function AverSlipPage() {
     <div className="gi as">
       <header className="as-head">
         <h1 className="as-title">Scan Aver slip</h1>
-        <p className="gi-note">Scan the square code on the Aver picking slip in the box. The invoice comes in with every line, then scan the packs.</p>
+        <p className="gi-note">Scan the square code on the Aver picking slip in the box. The invoice comes in with every line, ready to check.</p>
       </header>
       <SlipScanner />
     </div>
