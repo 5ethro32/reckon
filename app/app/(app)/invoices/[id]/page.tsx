@@ -1,20 +1,16 @@
 /**
- * One delivery: its invoice header, then checking the lines (tick, record
- * problems, scan packs) and raising a claim for anything wrong.
+ * One delivery: reads the invoice and its lines, then the receiving screen
+ * (scan packs, tick lines, record problems, close or raise a claim).
+ * ?scan=1 opens the camera straight away.
  */
 
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { readAll } from '@/lib/paginated-read';
-import { money, supplierName } from '@/lib/goods-in/supplier';
-import { SupplierBadge } from '@/components/goods-in/ui';
-import LinesEditor from './lines-editor';
-import CatalogImport from './barcode-catalog-import';
+import DeliveryView from './delivery-view';
 import '@/components/goods-in/goods-in.css';
 import './goods-in-page.css';
-
-const longDate = (d: string) => new Date(d + (d.length === 10 ? 'T12:00:00Z' : '')).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Europe/London' }).replace('Sept', 'Sep');
 
 export default async function InvoiceDetailPage({
   params,
@@ -34,7 +30,7 @@ export default async function InvoiceDetailPage({
       unit_price, net, vat_rate, vat_amount, gross,
       flags, notes,
       damage_disposition, return_disposition,
-      credited_via_statement_line_id
+      credit_request_id, credited_via_statement_line_id
     `)
     .eq('invoice_id', id)
     .order('id').limit(500);
@@ -72,68 +68,5 @@ export default async function InvoiceDetailPage({
     );
   }
   lines.sort((a, b) => a.line_number - b.line_number);
-  const warnings = (invoice.warnings as string[]) ?? [];
-  const lineGross = lines.reduce((s, l) => s + Number(l.gross), 0);
-
-  return (
-    <div className="gi gx">
-      <Link href="/invoices" className="gx-back">
-        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={1.6} aria-hidden="true"><path d="M7.5 3 4.5 6l3 3" strokeLinecap="round" strokeLinejoin="round" /></svg>
-        Invoices
-      </Link>
-
-      <header className="gx-head">
-        <SupplierBadge supplier={invoice.supplier} />
-        <div className="gx-head-main">
-          <p className="gx-head-sup">{supplierName(invoice.supplier)} · {longDate(invoice.invoice_date)}</p>
-          <h1 className="gx-title tnum">{invoice.invoice_number}</h1>
-        </div>
-        <div className="gx-head-fig">
-          <strong className="tnum">{money(Number(invoice.gross_total))}</strong>
-          <span>incl. VAT</span>
-        </div>
-      </header>
-
-      <details className="gx-details">
-        <summary>Invoice details</summary>
-        <dl>
-          <div><dt>Due</dt><dd>{invoice.due_date ? longDate(invoice.due_date) : '–'}</dd></div>
-          <div><dt>PO number</dt><dd>{invoice.po_number ?? '–'}</dd></div>
-          <div><dt>Account</dt><dd>{invoice.customer_account ?? '–'}</dd></div>
-          <div><dt>Net</dt><dd className="tnum">{money(Number(invoice.net_total))}</dd></div>
-          <div><dt>VAT</dt><dd className="tnum">{money(Number(invoice.vat_total))}</dd></div>
-          <div><dt>Lines</dt><dd className="tnum">{lines.length}</dd></div>
-        </dl>
-      </details>
-
-      {!invoice.totals_match && (
-        <p className="gx-banner" role="note">
-          <i className="gi-dot is-warn" />
-          <span>
-            <strong>Totals don&apos;t agree.</strong> The lines add up to {money(lineGross)}; the invoice says {money(Number(invoice.gross_total))}. Check the lines against the paper copy.
-          </span>
-        </p>
-      )}
-
-      <LinesEditor
-        key={JSON.stringify(lines)}
-        invoiceId={invoice.id}
-        invoiceNumber={invoice.invoice_number}
-        initialLines={lines}
-        startScanning={query.scan === '1' && lines.length > 0}
-      />
-
-      {(warnings.length > 0 || lines.length > 0) && (
-        <div className="gx-foot">
-          {warnings.length > 0 && (
-            <details className="gx-details">
-              <summary>Reading notes ({warnings.length})</summary>
-              <ul className="gx-warnings">{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
-            </details>
-          )}
-          {lines[0] && <CatalogImport lineId={lines[0].id} />}
-        </div>
-      )}
-    </div>
-  );
+  return <DeliveryView invoice={invoice} lines={lines} startScanning={query.scan === '1'} />;
 }

@@ -1,10 +1,19 @@
 'use client';
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { Chevron, ScanIcon, SupplierBadge } from '@/components/goods-in/ui';
+import { money, supplierName } from '@/lib/goods-in/supplier';
+import { deliveryFacts } from '@/lib/receiving-progress';
 
-/** Camera (or a handheld scanner typing into the box) reads the slip QR; the server brings the invoice in. */
+/** One invoice the slip brought in, as the slip API describes it. */
+export type SlipDelivery = { id: string; supplier: string; invoiceNumber: string; invoiceDate: string; gross: number; lines: number; packs: number; checked: number };
+
+/**
+ * Camera (or a handheld scanner typing into the box) reads the slip QR; the server brings the invoice in.
+ * Then it says what was opened, "Aver delivery 5804180, 19 Oct, 42 lines, 91 packs", before checking starts.
+ */
 export default function SlipScanner() {
-  const router = useRouter();
+  const [opened, setOpened] = useState<SlipDelivery[] | null>(null);
   const video = useRef<HTMLVideoElement>(null);
   const [cameraOn, setCameraOn] = useState(true);
   const [status, setStatus] = useState<{ tone: 'idle' | 'busy' | 'bad'; text: string }>({ tone: 'idle', text: 'Point the camera at the slip QR.' });
@@ -25,9 +34,14 @@ export default function SlipScanner() {
       const data = await res.json();
       if (!res.ok) throw Error(data.error ?? 'Could not read the slip');
       const ids: string[] = data.invoiceIds ?? [];
+      const deliveries: SlipDelivery[] = data.deliveries ?? [];
       if (!ids.length) throw Error('No invoice on this slip.');
+      // The invoices are in; if their summary could not be read, open them without it.
+      if (!deliveries.length) { window.location.assign(ids.length === 1 ? `/invoices/${ids[0]}?scan=1` : '/invoices?status=open'); return; }
       setCameraOn(false);
-      router.push(ids.length === 1 ? `/invoices/${ids[0]}?scan=1` : '/invoices?status=open');
+      setOpened(deliveries);
+      setStatus({ tone: 'idle', text: '' });
+      busy.current = false;
     } catch (e) {
       setStatus({ tone: 'bad', text: e instanceof Error ? e.message : 'Could not read the slip' });
       busy.current = false;
@@ -57,6 +71,8 @@ export default function SlipScanner() {
     return () => { cancelled = true; controls?.stop(); };
   }, [cameraOn]);
 
+  if (opened) return <Opened deliveries={opened} onAgain={() => { setOpened(null); setCode(''); setStatus({ tone: 'idle', text: 'Point the camera at the slip QR.' }); setCameraOn(true); }} />;
+
   return (
     <section className="gi-card as-card">
       {cameraOn && (
@@ -73,6 +89,47 @@ export default function SlipScanner() {
       {!cameraOn && status.tone !== 'busy' && (
         <button type="button" className="gi-btn gi-btn-quiet gi-btn-block as-retry" onClick={() => { busy.current = false; setStatus({ tone: 'idle', text: 'Point the camera at the slip QR.' }); setCameraOn(true); }}>Use the camera</button>
       )}
+    </section>
+  );
+}
+
+/** What the slip opened. One invoice: its facts and one action. Several: a row each. */
+function Opened({ deliveries, onAgain }: { deliveries: SlipDelivery[]; onAgain: () => void }) {
+  const one = deliveries.length === 1 ? deliveries[0]! : null;
+  const status = (d: SlipDelivery) => d.checked === 0 ? 'Ready to check' : d.checked >= d.lines ? 'Already checked' : `${d.checked} of ${d.lines} lines already checked`;
+  return (
+    <section className="gi-card as-card as-opened" aria-live="polite">
+      <p className="as-opened-label">{one ? 'Delivery opened' : `This slip has ${deliveries.length} invoices`}</p>
+      {one ? (
+        <div className="as-delivery">
+          <SupplierBadge supplier={one.supplier} />
+          <div className="as-delivery-main">
+            <h2 className="tnum">{supplierName(one.supplier)} delivery {one.invoiceNumber}</h2>
+            <p className="tnum">{deliveryFacts(one.invoiceDate, one.lines, one.packs)}</p>
+            <p className="tnum as-delivery-sub">{money(one.gross)} · {status(one)}</p>
+          </div>
+        </div>
+      ) : (
+        <ul className="gi-rows as-rows">
+          {deliveries.map(d => (
+            <li key={d.id}>
+              <Link href={`/invoices/${d.id}?scan=1`} className="gi-row">
+                <SupplierBadge supplier={d.supplier} />
+                <span style={{ minWidth: 0 }}>
+                  <span className="gi-row-title tnum">{supplierName(d.supplier)} delivery {d.invoiceNumber}</span>
+                  <span className="gi-row-sub tnum"><span>{deliveryFacts(d.invoiceDate, d.lines, d.packs)}</span></span>
+                </span>
+                <span className="gi-row-fig"><strong>{money(d.gross)}</strong><small>{d.checked ? `${d.checked} of ${d.lines} checked` : 'To check'}</small></span>
+                <Chevron />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="as-opened-actions">
+        {one && <Link href={`/invoices/${one.id}?scan=1`} className="gi-btn gi-btn-primary gi-btn-block"><ScanIcon />{one.checked >= one.lines && one.lines > 0 ? 'Open delivery' : 'Start checking'}</Link>}
+        <button type="button" className="gi-btn gi-btn-quiet gi-btn-block" onClick={onAgain}>Scan another slip</button>
+      </div>
     </section>
   );
 }

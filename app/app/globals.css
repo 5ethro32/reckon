@@ -1571,6 +1571,17 @@ a.figure:hover {
   width: 22px;
   height: 22px;
 }
+/* Tapped, page on its way. */
+.tabbar-icon[data-pending="true"] {
+  background: rgb(var(--ink-rgb) / 0.08);
+  animation: tabbar-wait 900ms ease-in-out infinite alternate;
+}
+@keyframes tabbar-wait {
+  to { opacity: 0.45; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tabbar-icon[data-pending="true"] { animation: none; opacity: 0.6; }
+}
 .tabbar-tab[aria-current="page"],
 .tabbar-tab[data-active="true"] {
   color: var(--brand-strong);

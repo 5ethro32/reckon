@@ -5,11 +5,14 @@
  * indicator, with five places. Scan goes to the delivery that needs
  * checking next (see /scan). More opens a sheet with the rest, the pharmacy
  * in view and Appearance.
+ *
+ * A tapped tab dims until its page arrives, so a slow connection never looks
+ * like a tap that did nothing.
  */
 
-import Link from 'next/link';
+import Link, { useLinkStatus } from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { CLAIMS, DELIVERIES, HOME, MORE, icons, isActive, type NavItem } from './nav';
 import { setTheme, themeChoice, type ThemeChoice } from '@/lib/theme';
 
@@ -28,8 +31,7 @@ export default function TabBar({ pharmacyName, userEmail }: { pharmacyName: stri
     const active = item !== SCAN && isActive(item, path);
     return (
       <Link key={item.id} href={item.href} className="tabbar-tab" aria-current={active ? 'page' : undefined} prefetch={item === SCAN ? false : undefined}>
-        <span className="tabbar-icon">{item.icon}</span>
-        {item.label}
+        <TabFace icon={item.icon} label={item.label} />
       </Link>
     );
   };
@@ -57,6 +59,16 @@ export default function TabBar({ pharmacyName, userEmail }: { pharmacyName: stri
         </div>
       </nav>
       {moreOpen && <MoreSheet path={path} pharmacyName={pharmacyName} userEmail={userEmail} onClose={() => setMoreOpen(false)} />}
+    </>
+  );
+}
+
+function TabFace({ icon, label }: { icon: ReactNode; label: string }) {
+  const { pending } = useLinkStatus();
+  return (
+    <>
+      <span className="tabbar-icon" data-pending={pending ? 'true' : undefined}>{icon}</span>
+      {label}
     </>
   );
 }
