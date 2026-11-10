@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     const accounts: string[] = pharmacy?.aver_accounts ?? [];
     if (!accounts.length) return NextResponse.json({ error: 'Add your Aver account number in Settings to scan Aver slips.' }, { status: 409 });
 
-    const api = averApi();
+    const api = averApi(pharmacyId);
     if (!api) return NextResponse.json({ error: 'Aver slips are not set up on this server.' }, { status: 503 });
     const res = await fetch(`${api.base}/slip?code=AVERPL:${id}&accounts=${encodeURIComponent(accounts.join(','))}`, {
       headers: { Authorization: `Bearer ${api.secret}` },
