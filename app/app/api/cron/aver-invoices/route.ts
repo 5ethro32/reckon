@@ -16,8 +16,6 @@ export async function GET(request: NextRequest) {
   if (!secret || request.headers.get('authorization') !== `Bearer ${secret}`) {
     return NextResponse.json({ error: 'Unauthorised' }, { status: 401 });
   }
-  const api = averApi();
-  if (!api) return NextResponse.json({ skipped: 'AVER_SLIP_SECRET not set' });
   const days = Math.min(31, Math.max(1, Number(request.nextUrl.searchParams.get('days') ?? 2) || 2));
   const since = new Date(Date.now() - days * 86_400_000).toISOString();
 
@@ -28,6 +26,8 @@ export async function GET(request: NextRequest) {
   const out: { pharmacy: string; read?: number; added?: number; error?: string }[] = [];
   for (const p of pharmacies ?? []) {
     try {
+      const api = averApi(p.id);
+      if (!api) throw Error('Aver account access is not provisioned for this pharmacy');
       const res = await fetch(`${api.base}/invoices?accounts=${encodeURIComponent((p.aver_accounts as string[]).join(','))}&since=${encodeURIComponent(since)}`, {
         headers: { Authorization: `Bearer ${api.secret}` },
         cache: 'no-store',

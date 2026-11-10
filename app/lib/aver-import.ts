@@ -26,9 +26,14 @@ export async function saveAverInvoices(db: SupabaseClient, pharmacyId: string, i
   return { ids, added };
 }
 
-/** Where Aver answers from (the REVA portal's partner API) and its shared secret. */
-export function averApi(): { base: string; secret: string } | null {
-  const secret = process.env.AVER_SLIP_SECRET;
-  if (!secret) return null;
+/** A server-provisioned credential for this verified pharmacy membership.
+ * Never derive permission from customer-editable account settings. */
+export function averApi(pharmacyId: string): { base: string; secret: string } | null {
+  if (!/^[0-9a-f-]{36}$/i.test(pharmacyId)) return null;
+  let keys: unknown;
+  try { keys = JSON.parse(process.env.AVER_PARTNER_KEYS ?? "{}"); } catch { return null; }
+  if (!keys || typeof keys !== "object" || Array.isArray(keys) || !Object.hasOwn(keys, pharmacyId)) return null;
+  const secret = (keys as Record<string, unknown>)[pharmacyId];
+  if (typeof secret !== "string" || !/^rpk_[A-Za-z0-9_-]{43}$/.test(secret)) return null;
   return { base: (process.env.AVER_API_URL ?? 'https://revabyaver.co.uk/api/partner').replace(/\/$/, ''), secret };
 }
